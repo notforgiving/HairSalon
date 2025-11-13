@@ -11,7 +11,93 @@ interface Hairdresser {
   name: string;
   photoUrl?: string;
   address?: string;
+  vacation?: { from?: string; to?: string } | null;
 }
+
+const formatDateLabel = (value: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("ru-RU");
+};
+
+const formatDateTime = (date: string, time: string) => {
+  const dt = new Date(`${date}T${time}:00`);
+  if (Number.isNaN(dt.getTime())) return `${date} ${time}`;
+  return `${dt.toLocaleDateString("ru-RU")} ${dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`;
+};
+
+const getVacationStatus = (hairdresser?: Hairdresser | null) => {
+  const empty = {
+    active: false,
+    upcoming: false,
+    from: undefined as string | undefined,
+    to: undefined as string | undefined,
+    daysUntilStart: undefined as number | undefined,
+    daysUntilEnd: undefined as number | undefined
+  };
+  if (!hairdresser?.vacation?.from || !hairdresser.vacation?.to) return empty;
+
+  const startRaw = hairdresser.vacation.from;
+  const endRaw = hairdresser.vacation.to;
+  const start = new Date(startRaw);
+  const end = new Date(endRaw);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return empty;
+
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999);
+  const msDay = 1000 * 60 * 60 * 24;
+
+  if (todayStart >= startDay && todayStart <= endDay) {
+    const daysUntilEnd = Math.max(0, Math.ceil((endDay.getTime() - todayStart.getTime()) / msDay));
+    return {
+      active: true,
+      upcoming: false,
+      from: startRaw,
+      to: endRaw,
+      daysUntilStart: 0,
+      daysUntilEnd
+    };
+  }
+
+  if (todayStart < startDay) {
+    const diff = Math.ceil((startDay.getTime() - todayStart.getTime()) / msDay);
+    if (diff <= 14) {
+      return {
+        active: false,
+        upcoming: true,
+        from: startRaw,
+        to: endRaw,
+        daysUntilStart: diff,
+        daysUntilEnd: undefined
+      };
+    }
+  }
+
+  return {
+    active: false,
+    upcoming: false,
+    from: startRaw,
+    to: endRaw,
+    daysUntilStart: undefined,
+    daysUntilEnd: undefined
+  };
+};
+
+const isDayInVacation = (hairdresser: Hairdresser | null, isoDate: string) => {
+  if (!hairdresser?.vacation?.from || !hairdresser.vacation?.to) return false;
+  const date = new Date(isoDate);
+  const start = new Date(hairdresser.vacation.from);
+  const end = new Date(hairdresser.vacation.to);
+  if (Number.isNaN(date.getTime()) || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+  const vacationStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const vacationEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999);
+  return dayEnd >= vacationStart && dayStart <= vacationEnd;
+};
 
 const Home: React.FC = () => {
   const { user, role } = useAuth();
@@ -27,6 +113,14 @@ const Home: React.FC = () => {
     setSelected(hairdresser);
     setSelectedSlot(null);
     setBookingError("");
+
+    const vacationStatus = getVacationStatus(hairdresser);
+    if (vacationStatus.active) {
+      setSlots([]);
+      setLoadingSlots(false);
+      return;
+    }
+
     setLoadingSlots(true);
     try {
       const qSlots = query(
@@ -70,13 +164,21 @@ const Home: React.FC = () => {
     setDays(list);
   }, []);
 
+  useEffect(() => {
+    if (!selected) return;
+    const updated = hairdressers.find(h => h.id === selected.id);
+    if (updated && updated !== selected) {
+      loadSlotsForHairdresser(updated);
+    }
+  }, [hairdressers]);
+
   const bookSelectedSlot = async () => {
     if (!user || role !== "user" || !selected || !selectedSlot) {
       setBookingError("Только авторизованные пользователи могут бронировать");
       return;
     }
     const slot = selectedSlot;
-    const confirmText = `Записаться к ${selected.name} на ${slot.date} ${slot.time}?`;
+    const confirmText = `Записаться к ${selected.name} на ${formatDateTime(slot.date, slot.time)}?`;
     if (!window.confirm(confirmText)) return;
     try {
       const userDoc = await getDoc(doc(db, "users", user.uid));
@@ -96,12 +198,18 @@ const Home: React.FC = () => {
       });
       await updateDoc(doc(db, "slots", slot.id), { booked: true, userId: user.uid });
       alert("Вы успешно записались!");
-      setSelected(null);
       setSelectedSlot(null);
+      loadSlotsForHairdresser(selected);
     } catch (e: any) {
       setBookingError(e.message || "Ошибка бронирования");
     }
   };
+
+  const handleSlotClick = (slot: { id: string; date: string; time: string }) => {
+    setSelectedSlot(prev => (prev?.id === slot.id ? null : slot));
+  };
+
+  const vacationStatus = getVacationStatus(selected);
 
   return (
     <>
@@ -125,32 +233,86 @@ const Home: React.FC = () => {
           <div className="lg:col-span-2">
             {!selected ? (
               <div className="text-gray-600">Выберите специалиста слева, чтобы увидеть доступные слоты</div>
+            ) : vacationStatus.active ? (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 via-purple-600 to-rose-500 text-white p-6"
+              >
+                <div className="absolute inset-0 bg-white/10 blur-3xl" />
+                <div className="relative flex flex-col sm:flex-row sm:items-center gap-4">
+                  <span className="text-4xl">🌴</span>
+                  <div className="space-y-2">
+                    <h3 className="text-2xl font-semibold">{selected.name} сейчас в отпуске</h3>
+                    <p className="text-sm text-white/85">
+                      Мастер недоступен с {formatDateLabel(vacationStatus.from!)} по {formatDateLabel(vacationStatus.to!)}.
+                      Выберите другого мастера или попробуйте записаться позже.
+                    </p>
+                    {typeof vacationStatus.daysUntilEnd === "number" && (
+                      <p className="text-sm text-white/70">
+                        Возвращается через {vacationStatus.daysUntilEnd} {vacationStatus.daysUntilEnd === 1 ? "день" : "дней"}.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
             ) : (
               <div className="bg-white rounded-xl shadow p-4 space-y-4">
-                <div>
-                  <h3 className="text-xl font-bold">Доступные окошки — {selected.name}</h3>
-                  {selected.address && (
-                    <p className="text-sm text-gray-600 mt-1">Адрес: {selected.address}</p>
+                <div className="flex flex-col gap-2">
+                  <div>
+                    <h3 className="text-xl font-bold">Доступные окошки — {selected.name}</h3>
+                    {selected.address && (
+                      <p className="text-sm text-gray-600 mt-1">Адрес: {selected.address}</p>
+                    )}
+                  </div>
+                  {vacationStatus.upcoming && (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 text-amber-700 px-4 py-3 flex items-start gap-3">
+                      <span className="text-2xl">🌞</span>
+                      <div className="space-y-1">
+                        <p className="font-medium">
+                          Отпуск через {vacationStatus.daysUntilStart} {vacationStatus.daysUntilStart === 1 ? "день" : "дней"}
+                        </p>
+                        <p className="text-sm text-amber-600">
+                          Мастер будет недоступен с {formatDateLabel(vacationStatus.from!)} по {formatDateLabel(vacationStatus.to!)}.
+                        </p>
+                      </div>
+                    </div>
                   )}
                 </div>
                 {loadingSlots ? (
                   <p>Загрузка слотов...</p>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                    {days.map(d => (
-                      <div key={d.iso} className="border rounded-lg p-3">
-                        <div className="text-sm text-gray-600 mb-2">{d.label}</div>
-                        <div className="grid gap-2">
-                          {slots.filter(s => s.date === d.iso).length === 0 ? (
-                            <span className="text-xs text-gray-400">Нет слотов</span>
-                          ) : (
-                            slots
-                              .filter(s => s.date === d.iso)
-                              .sort((a, b) => a.time.localeCompare(b.time))
-                              .map(s => (
+                    {days.map(d => {
+                      const isVacationDay = isDayInVacation(selected, d.iso);
+                      const filteredSlots = slots
+                        .filter(s => {
+                          if (s.date !== d.iso) return false;
+                          if (!selected || !selected.vacation?.from || !selected.vacation?.to) return true;
+                          const slotDate = new Date(`${s.date}T${s.time}`);
+                          const vacStart = new Date(selected.vacation.from);
+                          const vacEnd = new Date(selected.vacation.to);
+                          return slotDate < vacStart || slotDate > vacEnd;
+                        })
+                        .sort((a, b) => a.time.localeCompare(b.time));
+                      return (
+                        <div
+                          key={d.iso}
+                          className={`border rounded-lg p-3 ${isVacationDay ? "border-amber-300 bg-amber-50" : ""}`}
+                        >
+                          <div className={`text-sm mb-2 ${isVacationDay ? "text-amber-700 font-medium" : "text-gray-600"}`}>
+                            {d.label}{isVacationDay ? " · отпуск" : ""}
+                          </div>
+                          <div className="grid gap-2">
+                            {isVacationDay ? (
+                              <span className="text-xs text-amber-600">Мастер в отпуске</span>
+                            ) : filteredSlots.length === 0 ? (
+                              <span className="text-xs text-gray-400">Нет слотов</span>
+                            ) : (
+                              filteredSlots.map(s => (
                                 <button
                                   key={s.id}
-                                  onClick={() => setSelectedSlot(s)}
+                                  onClick={() => handleSlotClick(s)}
                                   className={`text-sm border rounded px-2 py-1 transition ${
                                     selectedSlot?.id === s.id ? "bg-primary text-white border-primary" : "hover:bg-accent"
                                   }`}
@@ -158,19 +320,20 @@ const Home: React.FC = () => {
                                   {s.time}
                                 </button>
                               ))
-                          )}
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
                 {selectedSlot && (
-                  <div className="mt-4">
+                  <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-2">
                     <button
                       onClick={bookSelectedSlot}
-                      className="w-full sm:w-auto bg-primary text-white px-4 py-2 rounded-xl hover:bg-purple-700 transition"
+                      className="bg-primary text-white px-4 py-2 rounded-xl hover:bg-purple-700 transition"
                     >
-                      Записаться на {selectedSlot.date} в {selectedSlot.time}
+                      Записаться на {formatDateTime(selectedSlot.date, selectedSlot.time)}
                     </button>
                   </div>
                 )}

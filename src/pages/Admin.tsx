@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { db } from "../services/firebase";
-import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, getDoc } from "firebase/firestore";
+import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, getDoc, query, where } from "firebase/firestore";
 import Navbar from "../components/Navbar";
 
 interface User {
@@ -12,9 +12,15 @@ interface User {
   address?: string;
 }
 
+const formatDateTime = (date: string, time?: string) => {
+  const dt = new Date(time ? `${date}T${time}` : date);
+  if (Number.isNaN(dt.getTime())) return time ? `${date} ${time}` : date;
+  return `${dt.toLocaleDateString("ru-RU")} ${dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`;
+};
+
 const Admin: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
-  const roles = ["user", "specialist", "admin"];
+  const roles = ["user", "admin"];
 
   const [hName, setHName] = useState("");
   const [hAddress, setHAddress] = useState("");
@@ -49,6 +55,15 @@ const Admin: React.FC = () => {
   const [editingHairdresserName, setEditingHairdresserName] = useState("");
   const [editingHairdresserAddress, setEditingHairdresserAddress] = useState("");
   const [editingHairdresserPhoto, setEditingHairdresserPhoto] = useState("");
+  const [vacationFrom, setVacationFrom] = useState<string>("");
+  const [vacationTo, setVacationTo] = useState<string>("");
+  const [savingVacation, setSavingVacation] = useState(false);
+
+  const [slotsModalOpen, setSlotsModalOpen] = useState(false);
+  const [slotsList, setSlotsList] = useState<{ id: string; date: string; time: string; booked: boolean }[]>([]);
+  const [selectedSlotsModal, setSelectedSlotsModal] = useState<Set<string>>(new Set());
+  const [deletingSlotId, setDeletingSlotId] = useState<string | null>(null);
+  const [deletingHairdresser, setDeletingHairdresser] = useState<any>(null);
 
   const loadUsers = async () => {
     try {
@@ -70,6 +85,12 @@ const Admin: React.FC = () => {
     const snap = await getDocs(collection(db, "appointments"));
     setAppointments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   };
+
+  useEffect(() => {
+    const current = hairdressers.find((h: any) => h.id === selectedH);
+    setVacationFrom(current?.vacation?.from || "");
+    setVacationTo(current?.vacation?.to || "");
+  }, [selectedH, hairdressers]);
 
   const openEditUser = async (user: User) => {
     try {
@@ -188,6 +209,114 @@ const Admin: React.FC = () => {
     { id: "people", label: "Пользователи" }
   ];
 
+  const selectedHairdresserInfo = hairdressers.find((h: any) => h.id === selectedH);
+  const formatDate = (value: string) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return `${date.toLocaleDateString("ru-RU")} ${date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`;
+  };
+
+  const handleSaveVacation = async () => {
+    if (!selectedH) return;
+    const from = vacationFrom?.trim();
+    const to = vacationTo?.trim();
+    if (!from || !to) {
+      alert(`Укажите даты начала и окончания отпуска. Сейчас: начало — ${from || "не выбрано"}, конец — ${to || "не выбрано"}`);
+      return;
+    }
+    setSavingVacation(true);
+    try {
+      await updateDoc(doc(db, "hairdressers", selectedH), {
+        vacation: { from, to }
+      });
+      await loadHairdressers();
+      alert("Отпуск сохранен");
+    } catch (e: any) {
+      alert(e.message || "Не удалось сохранить отпуск");
+    } finally {
+      setSavingVacation(false);
+    }
+  };
+
+  const handleClearVacation = async () => {
+    if (!selectedH) return;
+    setSavingVacation(true);
+    try {
+      await updateDoc(doc(db, "hairdressers", selectedH), {
+        vacation: null
+      });
+      await loadHairdressers();
+      setVacationFrom("");
+      setVacationTo("");
+      alert("Отпуск снят");
+    } catch (e: any) {
+      alert(e.message || "Не удалось снять отпуск");
+    } finally {
+      setSavingVacation(false);
+    }
+  };
+
+  const openSlotsModal = async () => {
+    if (!selectedH) return;
+    try {
+      const snap = await getDocs(query(collection(db, "slots"), where("specialistId", "==", selectedH)));
+      const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      setSlotsList(list);
+      setSelectedSlotsModal(new Set());
+      setSlotsModalOpen(true);
+    } catch (e) {
+      alert("Не удалось загрузить слоты");
+    }
+  };
+
+  const handleDeleteSlot = async (slotId: string) => {
+    if (!window.confirm("Удалить слот?")) return;
+    setDeletingSlotId(slotId);
+    try {
+      await deleteDoc(doc(db, "slots", slotId));
+      setSlotsList(prev => prev.filter(s => s.id !== slotId));
+      alert("Слот удален");
+    } catch (e: any) {
+      alert(e.message || "Не удалось удалить слот");
+    } finally {
+      setDeletingSlotId(null);
+    }
+  };
+
+  const handleBulkDeleteSlots = async () => {
+    if (selectedSlotsModal.size === 0) return;
+    if (!window.confirm("Удалить выбранные слоты?")) return;
+    try {
+      for (const slotId of Array.from(selectedSlotsModal)) {
+        await deleteDoc(doc(db, "slots", slotId));
+      }
+      setSlotsList(prev => prev.filter(s => !selectedSlotsModal.has(s.id)));
+      setSelectedSlotsModal(new Set());
+      alert("Выбранные слоты удалены");
+    } catch (e: any) {
+      alert(e.message || "Не удалось удалить слоты");
+    }
+  };
+
+  const handleDeleteHairdresser = async (hairdresser: any) => {
+    if (!window.confirm(`Удалить специалиста ${hairdresser.name}?`)) return;
+    setDeletingHairdresser(hairdresser);
+    try {
+      await deleteDoc(doc(db, "hairdressers", hairdresser.id));
+      const snap = await getDocs(query(collection(db, "slots"), where("specialistId", "==", hairdresser.id)));
+      for (const slotDoc of snap.docs) {
+        await deleteDoc(slotDoc.ref);
+      }
+      await loadHairdressers();
+      alert("Специалист удален");
+    } catch (e: any) {
+      alert(e.message || "Не удалось удалить специалиста");
+    } finally {
+      setDeletingHairdresser(null);
+    }
+  };
+
   return (
     <>
       <Navbar />
@@ -234,7 +363,7 @@ const Admin: React.FC = () => {
                         <div className="text-sm space-y-1">
                           <div className="font-semibold text-slate-800">{a.hairdresserName}</div>
                           {a.hairdresserAddress && <div className="text-slate-500">{a.hairdresserAddress}</div>}
-                          <div className="text-slate-600">{a.date} {a.time}</div>
+                          <div className="text-slate-600">{formatDateTime(a.date, a.time)}</div>
                           <div className="text-slate-500">
                             {a.userName}
                             {a.userPhone ? ` — ${a.userPhone}` : ""}
@@ -281,7 +410,7 @@ const Admin: React.FC = () => {
         {activeTab === "schedule" && (
           <section className="card-surface p-5 sm:p-6 space-y-4">
             <h3 className="text-xl font-semibold">Рабочие часы и генерация слотов</h3>
-            <div className="grid gap-4">
+        <div className="grid gap-4">
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="grid gap-1">
                   <label className="text-sm text-slate-500">Специалист</label>
@@ -369,6 +498,67 @@ const Admin: React.FC = () => {
                   />
                 </div>
               </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-1">
+                  <label className="text-sm text-slate-500">Отпуск с</label>
+                  <input
+                    type="date"
+                    className="border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    value={vacationFrom}
+                    onChange={e => setVacationFrom(e.target.value)}
+                    disabled={!selectedH}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <label className="text-sm text-slate-500">Отпуск по</label>
+                  <input
+                    type="date"
+                    className="border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    value={vacationTo}
+                    onChange={e => setVacationTo(e.target.value)}
+                    disabled={!selectedH}
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveVacation}
+                  disabled={!selectedH || savingVacation}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500 text-white hover:bg-amber-600 transition disabled:opacity-60"
+                >
+                  {savingVacation ? "Сохранение..." : "Сохранить отпуск"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearVacation}
+                  disabled={!selectedH || savingVacation || (!selectedHairdresserInfo?.vacation?.from && !selectedHairdresserInfo?.vacation?.to)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-600 hover:bg-slate-100 transition disabled:opacity-60"
+                >
+                  Снять отпуск
+                </button>
+                <button
+                  type="button"
+                  onClick={openSlotsModal}
+                  disabled={!selectedH}
+                  className="px-3 py-1.5 rounded-xl border border-primary text-primary hover:bg-primary hover:text-white transition disabled:opacity-60"
+                >
+                  Просмотреть / удалить слоты
+                </button>
+              </div>
+
+              {selectedHairdresserInfo?.vacation?.from && selectedHairdresserInfo?.vacation?.to && (
+                <div className="text-sm text-slate-500">
+                  Текущий отпуск: {formatDate(selectedHairdresserInfo.vacation.from)} — {formatDate(selectedHairdresserInfo.vacation.to)}
+                </div>
+              )}
+              {selectedHairdresserInfo?.vacation?.from && selectedHairdresserInfo?.vacation?.to && (
+                <div className="text-sm text-amber-600 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl">
+                  В период отпуска клиенты увидят заглушку вместо календаря.
+                </div>
+              )}
 
               <button
                 disabled={generating || !selectedH || !rangeFrom || !rangeTo}
@@ -471,13 +661,22 @@ const Admin: React.FC = () => {
                       <p className="font-semibold text-sm sm:text-base truncate">{h.name || "Без имени"}</p>
                       {h.address && <p className="text-xs text-slate-500 truncate">{h.address}</p>}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => openEditHairdresser(h)}
-                      className="px-3 py-1.5 rounded-xl border border-primary text-primary text-sm hover:bg-primary hover:text-white transition"
-                    >
-                      Редактировать
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openEditHairdresser(h)}
+                        className="px-3 py-1.5 rounded-xl border border-primary text-primary text-sm hover:bg-primary hover:text-white transition"
+                      >
+                        Редактировать
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteHairdresser(h)}
+                        className="px-3 py-1.5 rounded-xl border border-red-400 text-red-500 text-sm hover:bg-red-500 hover:text-white transition"
+                      >
+                        Удалить
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -588,8 +787,14 @@ const Admin: React.FC = () => {
       )}
 
       {editingHairdresser && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md grid gap-4">
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50"
+          onClick={() => setEditingHairdresser(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md grid gap-4"
+            onClick={e => e.stopPropagation()}
+          >
             <h3 className="text-lg font-bold text-center">Редактирование специалиста</h3>
             <input
               type="text"
@@ -628,6 +833,102 @@ const Admin: React.FC = () => {
               >
                 {editingHairdresserSaving ? "Сохранение..." : "Сохранить"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {slotsModalOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center p-3 sm:p-4 z-50"
+          onClick={() => setSlotsModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl p-4 sm:p-6 w-full max-w-lg sm:max-w-2xl grid gap-4 max-h-[85vh] overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-lg font-bold">Слоты специалиста</h3>
+              <button
+                type="button"
+                onClick={() => setSlotsModalOpen(false)}
+                className="text-slate-500 hover:text-slate-700"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedSlotsModal.size === slotsList.length) {
+                    setSelectedSlotsModal(new Set());
+                  } else {
+                    setSelectedSlotsModal(new Set(slotsList.map(s => s.id)));
+                  }
+                }}
+                className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-600 hover:bg-slate-100 transition"
+              >
+                {selectedSlotsModal.size === slotsList.length ? "Снять выделение" : "Выделить все"}
+              </button>
+              {selectedSlotsModal.size > 0 && (
+                <button
+                  type="button"
+                  onClick={handleBulkDeleteSlots}
+                  className="px-3 py-1.5 rounded-xl bg-red-500 text-white hover:bg-red-600 transition"
+                >
+                  Удалить выбранные ({selectedSlotsModal.size})
+                </button>
+              )}
+            </div>
+            <div className="overflow-auto">
+              {slotsList.length === 0 ? (
+                <p className="text-sm text-slate-500">У специалиста нет слотов</p>
+              ) : (
+                <div className="grid gap-2">
+                  {slotsList.map(slot => (
+                    <div
+                      key={slot.id}
+                      className="flex items-center justify-between gap-3 border border-slate-200 rounded-xl px-3 py-2 text-sm"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <input
+                          type="checkbox"
+                          className="accent-primary"
+                          checked={selectedSlotsModal.has(slot.id)}
+                          onChange={() => {
+                            setSelectedSlotsModal(prev => {
+                              const next = new Set(prev);
+                              if (next.has(slot.id)) next.delete(slot.id);
+                              else next.add(slot.id);
+                              return next;
+                            });
+                          }}
+                          disabled={slot.booked}
+                        />
+                        <span className="truncate">
+                          {formatDateTime(slot.date, slot.time)}
+                        </span>
+                        {slot.booked && (
+                          <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs whitespace-nowrap">
+                            занято
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSlot(slot.id)}
+                        disabled={deletingSlotId === slot.id || slot.booked}
+                        className="h-8 px-2 sm:px-3 rounded-lg border border-red-300 text-red-500 hover:bg-red-500 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1 flex-shrink-0"
+                        title={slot.booked ? "Слот занят" : "Удалить слот"}
+                      >
+                        <span className="sm:hidden">🗑</span>
+                        <span className="hidden sm:inline">{deletingSlotId === slot.id ? "Удаление..." : "Удалить"}</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

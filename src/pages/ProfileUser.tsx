@@ -92,6 +92,12 @@ const ProfileUser: React.FC = () => {
     }
   };
 
+  const formatDateTime = (date: string, time: string) => {
+    const dt = new Date(`${date}T${time}:00`);
+    if (Number.isNaN(dt.getTime())) return `${date} ${time}`;
+    return `${dt.toLocaleDateString("ru-RU")} ${dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`;
+  };
+
   const toDate = (a: Appointment) => new Date(`${a.date}T${a.time}:00`);
   const now = new Date();
   const upcoming = appointments.filter(a => toDate(a) >= now).sort((a, b) => toDate(a).getTime() - toDate(b).getTime());
@@ -166,7 +172,7 @@ const ProfileUser: React.FC = () => {
                 <p className="font-semibold">{a.hairdresserName}</p>
                 {a.service && <p>{a.service}</p>}
                 {a.hairdresserAddress && <p className="text-gray-600 text-sm max-w-md">{a.hairdresserAddress}</p>}
-                <p>{new Date(`${a.date}T${a.time}:00`).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>
+                <p>{formatDateTime(a.date, a.time)}</p>
               </div>
               {activeTab === "upcoming" ? (
                 <button

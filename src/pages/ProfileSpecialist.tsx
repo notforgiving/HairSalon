@@ -56,6 +56,12 @@ const ProfileSpecialist: React.FC = () => {
     setSlots(prev => prev.filter(s => s.id !== id));
   };
 
+  const formatDateTime = (date: string, time: string) => {
+    const dt = new Date(`${date}T${time}:00`);
+    if (Number.isNaN(dt.getTime())) return `${date} ${time}`;
+    return `${dt.toLocaleDateString("ru-RU")} ${dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`;
+  };
+
   return (
     <>
       <Navbar />
@@ -79,7 +85,7 @@ const ProfileSpecialist: React.FC = () => {
               className="bg-white p-4 rounded shadow flex justify-between items-center"
             >
               <div>
-                <p>{s.date} {s.time}</p>
+                <p>{formatDateTime(s.date, s.time)}</p>
                 <p>{s.booked ? "Забронирован" : "Свободен"}</p>
               </div>
               <button
