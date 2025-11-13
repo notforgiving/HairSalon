@@ -4,9 +4,10 @@ import { formatDateTime } from "../../utils/date";
 interface AppointmentsTabProps {
   appointments: Appointment[];
   onCancel: (appointment: Appointment) => Promise<void>;
+  onExport: () => void;
 }
 
-const AppointmentsTab: React.FC<AppointmentsTabProps> = ({ appointments, onCancel }) => {
+const AppointmentsTab: React.FC<AppointmentsTabProps> = ({ appointments, onCancel, onExport }) => {
   if (appointments.length === 0) {
     return (
       <section className="card-surface p-5 sm:p-6">
@@ -18,8 +19,17 @@ const AppointmentsTab: React.FC<AppointmentsTabProps> = ({ appointments, onCance
   return (
     <section className="card-surface p-5 sm:p-6 space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <h3 className="text-xl font-semibold">Все записи</h3>
-        <span className="text-sm text-slate-500">Всего: {appointments.length}</span>
+        <div className="flex items-center gap-3">
+          <h3 className="text-xl font-semibold">Все записи</h3>
+          <span className="text-sm text-slate-500">Всего: {appointments.length}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onExport}
+          className="px-3 py-1.5 rounded-xl border border-primary text-primary text-sm hover:bg-primary hover:text-white transition"
+        >
+          Экспорт CSV
+        </button>
       </div>
       <div className="grid gap-3">
         {appointments

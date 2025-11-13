@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { addDoc, collection, doc, getDoc, updateDoc } from "firebase/firestore";
 import Navbar from "../components/Navbar";
 import HairdresserList from "../components/home/HairdresserList";
+import HairdresserListSkeleton from "../components/home/HairdresserListSkeleton";
 import SlotsGrid from "../components/home/SlotsGrid";
 import { ActiveVacationBanner, UpcomingVacationBanner } from "../components/home/VacationBanner";
 import { db } from "../services/firebase";
@@ -30,7 +31,7 @@ const buildNextDays = (count = 14): DayItem[] => {
 
 const Home: React.FC = () => {
   const { user, role } = useAuth();
-  const { hairdressers } = useHairdressers();
+  const { hairdressers, loading: hairdressersLoading } = useHairdressers();
   const [selectedHairdresserId, setSelectedHairdresserId] = useState<string | undefined>(undefined);
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const days = useMemo(() => buildNextDays(), []);
@@ -45,6 +46,8 @@ const Home: React.FC = () => {
   });
 
   useEffect(() => {
+    if (hairdressersLoading) return;
+
     if (hairdressers.length === 0) {
       setSelectedHairdresserId(undefined);
       setSelectedSlot(null);
@@ -54,7 +57,7 @@ const Home: React.FC = () => {
       setSelectedHairdresserId(hairdressers[0].id);
       setSelectedSlot(null);
     }
-  }, [hairdressers, selectedHairdresserId]);
+  }, [hairdressers, selectedHairdresserId, hairdressersLoading]);
 
   const vacationStatus = useMemo(() => getVacationStatus(selectedHairdresser), [selectedHairdresser]);
 
@@ -111,15 +114,32 @@ const Home: React.FC = () => {
       <div className="p-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           <div className="lg:col-span-1">
-            <HairdresserList
-              hairdressers={hairdressers}
-              selectedId={selectedHairdresserId}
-              onSelect={handleSelectHairdresser}
-            />
+            {hairdressersLoading ? (
+              <HairdresserListSkeleton />
+            ) : (
+              <HairdresserList
+                hairdressers={hairdressers}
+                selectedId={selectedHairdresserId}
+                onSelect={handleSelectHairdresser}
+              />
+            )}
           </div>
 
           <div className="lg:col-span-2 space-y-4">
-            {!selectedHairdresser ? (
+            {hairdressersLoading && !selectedHairdresser ? (
+              <div className="bg-white rounded-xl shadow p-6 animate-pulse space-y-4">
+                <div className="h-5 bg-slate-200 rounded w-2/5" />
+                <div className="grid grid-cols-2 gap-3">
+                  {Array.from({ length: 4 }).map((_, idx) => (
+                    <div key={idx} className="border border-slate-200 rounded-lg p-3 space-y-3">
+                      <div className="h-3 bg-slate-100 rounded w-1/2" />
+                      <div className="h-8 bg-slate-100 rounded" />
+                      <div className="h-8 bg-slate-100 rounded" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : !selectedHairdresser ? (
               <div className="text-gray-600">Выберите специалиста слева, чтобы увидеть доступные слоты</div>
             ) : vacationStatus.active ? (
               <ActiveVacationBanner status={vacationStatus} />

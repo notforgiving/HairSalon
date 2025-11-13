@@ -1,74 +1,83 @@
-import React, { useEffect, useState } from "react";
-import { db } from "../services/firebase";
-import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, getDoc, query, where } from "firebase/firestore";
+import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  updateDoc,
+  where
+} from "firebase/firestore";
 import Navbar from "../components/Navbar";
+import AppointmentsTab from "../components/admin/AppointmentsTab";
+import { db } from "../services/firebase";
+import { Appointment, Hairdresser, Slot, UserProfile } from "../types";
+import { downloadAppointmentsCsv } from "../utils/csv";
+import { formatDate, formatDateTime } from "../utils/date";
 
-interface User {
-  uid: string;
-  name: string;
-  email: string;
-  role: string;
-  phone?: string;
-  address?: string;
-}
+const roles = ["user", "admin"] as const;
 
-const formatDateTime = (date: string, time?: string) => {
-  const dt = new Date(time ? `${date}T${time}` : date);
-  if (Number.isNaN(dt.getTime())) return time ? `${date} ${time}` : date;
-  return `${dt.toLocaleDateString("ru-RU")} ${dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`;
-};
+type AdminTab = "appointments" | "schedule" | "people";
 
 const Admin: React.FC = () => {
-  const [users, setUsers] = useState<User[]>([]);
-  const roles = ["user", "admin"];
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [hairdressers, setHairdressers] = useState<Hairdresser[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
 
   const [hName, setHName] = useState("");
   const [hAddress, setHAddress] = useState("");
   const [hPhotoUrl, setHPhotoUrl] = useState<string>("");
-  const [saving, setSaving] = useState(false);
+  const [savingHairdresser, setSavingHairdresser] = useState(false);
 
-  const [hairdressers, setHairdressers] = useState<any[]>([]);
-  const [selectedH, setSelectedH] = useState<string>("");
-  const [startTime, setStartTime] = useState<string>("10:00");
-  const [endTime, setEndTime] = useState<string>("18:00");
-  const [stepMinutes, setStepMinutes] = useState<number>(30);
+  const [selectedHairdresserId, setSelectedHairdresserId] = useState<string>("");
+  const [startTime, setStartTime] = useState("10:00");
+  const [endTime, setEndTime] = useState("18:00");
+  const [stepMinutes, setStepMinutes] = useState(30);
   const [weekdays, setWeekdays] = useState<Record<number, boolean>>({ 1: true, 2: true, 3: true, 4: true, 5: true });
-  const [rangeFrom, setRangeFrom] = useState<string>("");
-  const [rangeTo, setRangeTo] = useState<string>("");
-  const [generating, setGenerating] = useState(false);
+  const [rangeFrom, setRangeFrom] = useState("");
+  const [rangeTo, setRangeTo] = useState("");
+  const [generatingSlots, setGeneratingSlots] = useState(false);
 
-  const [appointments, setAppointments] = useState<any[]>([]);
-
-  const [activeTab, setActiveTab] = useState<"appointments" | "schedule" | "people">("appointments");
+  const [vacationFrom, setVacationFrom] = useState("");
+  const [vacationTo, setVacationTo] = useState("");
+  const [savingVacation, setSavingVacation] = useState(false);
 
   const [userSearch, setUserSearch] = useState("");
   const [usersError, setUsersError] = useState<string>("");
-  const [editingUser, setEditingUser] = useState<User | null>(null);
+
+  const [hairdresserSearch, setHairdresserSearch] = useState("");
+
+  const [activeTab, setActiveTab] = useState<AdminTab>("appointments");
+
+  const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [editingUserName, setEditingUserName] = useState("");
   const [editingUserPhone, setEditingUserPhone] = useState("");
   const [editingUserAddress, setEditingUserAddress] = useState("");
   const [editingUserSaving, setEditingUserSaving] = useState(false);
 
-  const [hairdresserSearch, setHairdresserSearch] = useState("");
-  const [editingHairdresser, setEditingHairdresser] = useState<any>(null);
-  const [editingHairdresserSaving, setEditingHairdresserSaving] = useState(false);
+  const [editingHairdresser, setEditingHairdresser] = useState<Hairdresser | null>(null);
   const [editingHairdresserName, setEditingHairdresserName] = useState("");
   const [editingHairdresserAddress, setEditingHairdresserAddress] = useState("");
   const [editingHairdresserPhoto, setEditingHairdresserPhoto] = useState("");
-  const [vacationFrom, setVacationFrom] = useState<string>("");
-  const [vacationTo, setVacationTo] = useState<string>("");
-  const [savingVacation, setSavingVacation] = useState(false);
+  const [editingHairdresserSaving, setEditingHairdresserSaving] = useState(false);
 
   const [slotsModalOpen, setSlotsModalOpen] = useState(false);
-  const [slotsList, setSlotsList] = useState<{ id: string; date: string; time: string; booked: boolean }[]>([]);
+  const [slotsModalHairdresserId, setSlotsModalHairdresserId] = useState<string | null>(null);
+  const [slotsList, setSlotsList] = useState<Slot[]>([]);
   const [selectedSlotsModal, setSelectedSlotsModal] = useState<Set<string>>(new Set());
   const [deletingSlotId, setDeletingSlotId] = useState<string | null>(null);
-  const [deletingHairdresser, setDeletingHairdresser] = useState<any>(null);
+  const [deletingHairdresser, setDeletingHairdresser] = useState<Hairdresser | null>(null);
 
   const loadUsers = async () => {
     try {
       const snapshot = await getDocs(collection(db, "users"));
-      const data: User[] = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as User));
+      const data: UserProfile[] = snapshot.docs.map(docSnap => ({
+        uid: docSnap.id,
+        ...(docSnap.data() as Omit<UserProfile, "uid">)
+      }));
       setUsers(data);
       setUsersError("");
     } catch (error: any) {
@@ -77,30 +86,75 @@ const Admin: React.FC = () => {
       setUsersError("Не удалось загрузить пользователей. Проверьте права доступа к Firestore.");
     }
   };
+
   const loadHairdressers = async () => {
     const snap = await getDocs(collection(db, "hairdressers"));
-    setHairdressers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const data: Hairdresser[] = snap.docs.map(docSnap => ({
+      id: docSnap.id,
+      ...(docSnap.data() as Omit<Hairdresser, "id">)
+    }));
+    setHairdressers(data);
   };
+
   const loadAppointments = async () => {
     const snap = await getDocs(collection(db, "appointments"));
-    setAppointments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const data: Appointment[] = snap.docs.map(docSnap => ({
+      id: docSnap.id,
+      ...(docSnap.data() as Omit<Appointment, "id">)
+    }));
+    setAppointments(data);
   };
 
   useEffect(() => {
-    const current = hairdressers.find((h: any) => h.id === selectedH);
+    loadUsers();
+    loadHairdressers();
+    loadAppointments();
+  }, []);
+
+  useEffect(() => {
+    const current = hairdressers.find(h => h.id === selectedHairdresserId);
     setVacationFrom(current?.vacation?.from || "");
     setVacationTo(current?.vacation?.to || "");
-  }, [selectedH, hairdressers]);
+  }, [selectedHairdresserId, hairdressers]);
 
-  const openEditUser = async (user: User) => {
+  const handleChangeRole = async (uid: string, role: string) => {
+    await updateDoc(doc(db, "users", uid), { role });
+    setUsers(prev => prev.map(user => (user.uid === uid ? { ...user, role } : user)));
+  };
+
+  const handleAddHairdresser = async () => {
+    if (!hName || !hAddress) {
+      alert("Заполните имя и адрес");
+      return;
+    }
+    setSavingHairdresser(true);
+    try {
+      await addDoc(collection(db, "hairdressers"), {
+        name: hName,
+        address: hAddress,
+        photoUrl: hPhotoUrl || ""
+      });
+      setHName("");
+      setHAddress("");
+      setHPhotoUrl("");
+      await loadHairdressers();
+      alert("Парикмахер сохранен");
+    } catch (error: any) {
+      alert(error.message || "Ошибка сохранения");
+    } finally {
+      setSavingHairdresser(false);
+    }
+  };
+
+  const openEditUser = async (user: UserProfile) => {
     try {
       const snapshot = await getDoc(doc(db, "users", user.uid));
-      const data = snapshot.data() as any;
+      const data = snapshot.data() as UserProfile | undefined;
       setEditingUser({ ...user, phone: data?.phone || "", address: data?.address || "" });
       setEditingUserName(user.name || "");
       setEditingUserPhone(data?.phone || "");
       setEditingUserAddress(data?.address || "");
-    } catch (e) {
+    } catch (error) {
       alert("Не удалось загрузить данные пользователя");
     }
   };
@@ -116,22 +170,23 @@ const Admin: React.FC = () => {
       });
       await loadUsers();
       setEditingUser(null);
-    } catch (e: any) {
-      alert(e.message || "Ошибка сохранения профиля пользователя");
+    } catch (error: any) {
+      alert(error.message || "Ошибка сохранения профиля пользователя");
     } finally {
       setEditingUserSaving(false);
     }
   };
 
-  const openEditHairdresser = async (hairdresser: any) => {
+  const openEditHairdresser = async (hairdresser: Hairdresser) => {
     try {
       const snapshot = await getDoc(doc(db, "hairdressers", hairdresser.id));
-      const data = snapshot.data() as any;
+      const data = snapshot.data() as Omit<Hairdresser, "id"> | undefined;
+      if (!data) return;
       setEditingHairdresser({ id: hairdresser.id, ...data });
-      setEditingHairdresserName(data?.name || "");
-      setEditingHairdresserAddress(data?.address || "");
-      setEditingHairdresserPhoto(data?.photoUrl || "");
-    } catch (e) {
+      setEditingHairdresserName(data.name || "");
+      setEditingHairdresserAddress(data.address || "");
+      setEditingHairdresserPhoto(data.photoUrl || "");
+    } catch (error) {
       alert("Не удалось загрузить данные специалиста");
     }
   };
@@ -147,127 +202,196 @@ const Admin: React.FC = () => {
       });
       await loadHairdressers();
       setEditingHairdresser(null);
-    } catch (e: any) {
-      alert(e.message || "Ошибка сохранения специалиста");
+    } catch (error: any) {
+      alert(error.message || "Ошибка сохранения специалиста");
     } finally {
       setEditingHairdresserSaving(false);
     }
   };
 
-  useEffect(() => {
-    loadUsers();
-    loadHairdressers();
-    loadAppointments();
-  }, []);
-
-  const handleChangeRole = async (uid: string, role: string) => {
-    await updateDoc(doc(db, "users", uid), { role });
-    setUsers(prev => prev.map(u => (u.uid === uid ? { ...u, role } : u)));
-  };
-
-  const handleAddHairdresser = async () => {
-    if (!hName || !hAddress) {
-      alert("Заполните имя и адрес");
-      return;
-    }
-    setSaving(true);
+  const handleCancelAppointment = async (appointment: Appointment) => {
+    if (!window.confirm("Отменить запись и освободить слот?")) return;
     try {
-      await addDoc(collection(db, "hairdressers"), {
-        name: hName,
-        address: hAddress,
-        photoUrl: hPhotoUrl || ""
-      });
-      setHName("");
-      setHAddress("");
-      setHPhotoUrl("");
-      await loadHairdressers();
-      alert("Парикмахер сохранен");
-    } catch (e: any) {
-      alert(e.message || "Ошибка сохранения");
-    } finally {
-      setSaving(false);
+      if (appointment.slotId) {
+        await updateDoc(doc(db, "slots", appointment.slotId), { booked: false, userId: null });
+      }
+      await deleteDoc(doc(db, "appointments", appointment.id));
+      setAppointments(prev => prev.filter(item => item.id !== appointment.id));
+      alert("Запись отменена");
+    } catch (error: any) {
+      alert(error.message || "Ошибка отмены");
     }
   };
 
-  const filteredUsers = users.filter(user => {
-    const term = userSearch.trim().toLowerCase();
-    if (!term) return true;
-    const target = `${user.name || ""} ${user.email}`.toLowerCase();
-    return target.includes(term);
-  });
-
-  const filteredHairdressers = hairdressers.filter((h: any) => {
-    const term = hairdresserSearch.trim().toLowerCase();
-    if (!term) return true;
-    const target = `${h.name || ""} ${h.address || ""}`.toLowerCase();
-    return target.includes(term);
-  });
-
-  const tabs: { id: "appointments" | "schedule" | "people"; label: string }[] = [
-    { id: "appointments", label: "Записи" },
-    { id: "schedule", label: "Рабочие часы" },
-    { id: "people", label: "Пользователи" }
-  ];
-
-  const selectedHairdresserInfo = hairdressers.find((h: any) => h.id === selectedH);
-  const formatDate = (value: string) => {
-    if (!value) return "";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return `${date.toLocaleDateString("ru-RU")} ${date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`;
+  const handleExportAppointments = () => {
+    downloadAppointmentsCsv(appointments);
   };
 
   const handleSaveVacation = async () => {
-    if (!selectedH) return;
-    const from = vacationFrom?.trim();
-    const to = vacationTo?.trim();
+    if (!selectedHairdresserId) return;
+    const from = vacationFrom.trim();
+    const to = vacationTo.trim();
     if (!from || !to) {
       alert(`Укажите даты начала и окончания отпуска. Сейчас: начало — ${from || "не выбрано"}, конец — ${to || "не выбрано"}`);
       return;
     }
     setSavingVacation(true);
     try {
-      await updateDoc(doc(db, "hairdressers", selectedH), {
+      await updateDoc(doc(db, "hairdressers", selectedHairdresserId), {
         vacation: { from, to }
       });
       await loadHairdressers();
       alert("Отпуск сохранен");
-    } catch (e: any) {
-      alert(e.message || "Не удалось сохранить отпуск");
+    } catch (error: any) {
+      alert(error.message || "Не удалось сохранить отпуск");
     } finally {
       setSavingVacation(false);
     }
   };
 
   const handleClearVacation = async () => {
-    if (!selectedH) return;
+    if (!selectedHairdresserId) return;
     setSavingVacation(true);
     try {
-      await updateDoc(doc(db, "hairdressers", selectedH), {
+      await updateDoc(doc(db, "hairdressers", selectedHairdresserId), {
         vacation: null
       });
       await loadHairdressers();
       setVacationFrom("");
       setVacationTo("");
       alert("Отпуск снят");
-    } catch (e: any) {
-      alert(e.message || "Не удалось снять отпуск");
+    } catch (error: any) {
+      alert(error.message || "Не удалось снять отпуск");
     } finally {
       setSavingVacation(false);
     }
   };
 
-  const openSlotsModal = async () => {
-    if (!selectedH) return;
+  const handleGenerateSlots = async () => {
+    if (!selectedHairdresserId) {
+      alert("Выберите специалиста");
+      return;
+    }
+    if (!rangeFrom || !rangeTo) {
+      alert("Укажите период генерации");
+      return;
+    }
+    const fromDate = new Date(rangeFrom);
+    const toDate = new Date(rangeTo);
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+      alert("Некорректные даты периода");
+      return;
+    }
+    if (fromDate > toDate) {
+      alert("Дата начала периода не может быть позже даты окончания");
+      return;
+    }
+    if (!stepMinutes || stepMinutes <= 0) {
+      alert("Шаг должен быть больше нуля");
+      return;
+    }
+    const [startHours, startMinutes] = startTime.split(":").map(Number);
+    const [endHours, endMinutes] = endTime.split(":").map(Number);
+    const startTotalMinutes = startHours * 60 + startMinutes;
+    const endTotalMinutes = endHours * 60 + endMinutes;
+    if (Number.isNaN(startTotalMinutes) || Number.isNaN(endTotalMinutes) || endTotalMinutes <= startTotalMinutes) {
+      alert("Проверьте время начала и окончания");
+      return;
+    }
+    if (!Object.values(weekdays).some(Boolean)) {
+      alert("Выберите хотя бы один день недели");
+      return;
+    }
+
+    setGeneratingSlots(true);
     try {
-      const snap = await getDocs(query(collection(db, "slots"), where("specialistId", "==", selectedH)));
-      const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      const existingSnapshot = await getDocs(query(collection(db, "slots"), where("specialistId", "==", selectedHairdresserId)));
+      const existingKeys = new Set(
+        existingSnapshot.docs.map(docSnap => {
+          const data = docSnap.data() as Omit<Slot, "id">;
+          return `${data.date}-${data.time}`;
+        })
+      );
+
+      const currentHairdresser = hairdressers.find(h => h.id === selectedHairdresserId);
+      const vacationStart = currentHairdresser?.vacation?.from ? new Date(currentHairdresser.vacation.from) : null;
+      const vacationEnd = currentHairdresser?.vacation?.to ? new Date(currentHairdresser.vacation.to) : null;
+
+      const slotsToCreate: Omit<Slot, "id">[] = [];
+      const walker = new Date(fromDate);
+      while (walker <= toDate) {
+        const dayOfWeek = walker.getDay();
+        if (weekdays[dayOfWeek]) {
+          const dayString = walker.toISOString().slice(0, 10);
+          const isVacationDay =
+            vacationStart && vacationEnd && !Number.isNaN(vacationStart.getTime()) && !Number.isNaN(vacationEnd.getTime())
+              ? walker >= vacationStart && walker <= vacationEnd
+              : false;
+
+          if (!isVacationDay) {
+            for (let minutes = startTotalMinutes; minutes < endTotalMinutes; minutes += stepMinutes) {
+              const hours = String(Math.floor(minutes / 60)).padStart(2, "0");
+              const mins = String(minutes % 60).padStart(2, "0");
+              const timeString = `${hours}:${mins}`;
+              const key = `${dayString}-${timeString}`;
+              if (!existingKeys.has(key)) {
+                existingKeys.add(key);
+                slotsToCreate.push({
+                  specialistId: selectedHairdresserId,
+                  date: dayString,
+                  time: timeString,
+                  booked: false
+                });
+              }
+            }
+          }
+        }
+        walker.setDate(walker.getDate() + 1);
+      }
+
+      if (slotsToCreate.length === 0) {
+        alert("Под заданные условия новые слоты не найдены");
+        return;
+      }
+
+      await Promise.all(slotsToCreate.map(payload => addDoc(collection(db, "slots"), payload)));
+      alert(`Создано новых слотов: ${slotsToCreate.length}`);
+      if (slotsModalOpen) {
+        await refreshSlots();
+      }
+    } catch (error: any) {
+      alert(error.message || "Не удалось сгенерировать слоты");
+    } finally {
+      setGeneratingSlots(false);
+    }
+  };
+
+  const openSlotsModal = async (id?: string) => {
+    const targetId = id ?? selectedHairdresserId;
+    if (!targetId) return;
+    try {
+      const snapshot = await getDocs(query(collection(db, "slots"), where("specialistId", "==", targetId)));
+      const list: Slot[] = snapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<Slot, "id">)
+      }));
       setSlotsList(list);
       setSelectedSlotsModal(new Set());
+      setSlotsModalHairdresserId(targetId);
       setSlotsModalOpen(true);
-    } catch (e) {
+    } catch (error) {
       alert("Не удалось загрузить слоты");
     }
+  };
+
+  const refreshSlots = async () => {
+    if (!slotsModalHairdresserId) return;
+    const snapshot = await getDocs(query(collection(db, "slots"), where("specialistId", "==", slotsModalHairdresserId)));
+    const list: Slot[] = snapshot.docs.map(docSnap => ({
+      id: docSnap.id,
+      ...(docSnap.data() as Omit<Slot, "id">)
+    }));
+    setSlotsList(list);
   };
 
   const handleDeleteSlot = async (slotId: string) => {
@@ -275,10 +399,11 @@ const Admin: React.FC = () => {
     setDeletingSlotId(slotId);
     try {
       await deleteDoc(doc(db, "slots", slotId));
-      setSlotsList(prev => prev.filter(s => s.id !== slotId));
+      setSlotsList(prev => prev.filter(slot => slot.id !== slotId));
+      await refreshSlots();
       alert("Слот удален");
-    } catch (e: any) {
-      alert(e.message || "Не удалось удалить слот");
+    } catch (error: any) {
+      alert(error.message || "Не удалось удалить слот");
     } finally {
       setDeletingSlotId(null);
     }
@@ -288,141 +413,80 @@ const Admin: React.FC = () => {
     if (selectedSlotsModal.size === 0) return;
     if (!window.confirm("Удалить выбранные слоты?")) return;
     try {
-      for (const slotId of Array.from(selectedSlotsModal)) {
-        await deleteDoc(doc(db, "slots", slotId));
-      }
-      setSlotsList(prev => prev.filter(s => !selectedSlotsModal.has(s.id)));
+      const toRemove = Array.from(selectedSlotsModal);
+      await Promise.all(toRemove.map(slotId => deleteDoc(doc(db, "slots", slotId))));
+      setSlotsList(prev => prev.filter(slot => !selectedSlotsModal.has(slot.id)));
       setSelectedSlotsModal(new Set());
+      await refreshSlots();
       alert("Выбранные слоты удалены");
-    } catch (e: any) {
-      alert(e.message || "Не удалось удалить слоты");
+    } catch (error: any) {
+      alert(error.message || "Не удалось удалить слоты");
     }
   };
 
-  const handleDeleteHairdresser = async (hairdresser: any) => {
+  const handleDeleteHairdresser = async (hairdresser: Hairdresser) => {
     if (!window.confirm(`Удалить специалиста ${hairdresser.name}?`)) return;
     setDeletingHairdresser(hairdresser);
     try {
       await deleteDoc(doc(db, "hairdressers", hairdresser.id));
-      const snap = await getDocs(query(collection(db, "slots"), where("specialistId", "==", hairdresser.id)));
-      for (const slotDoc of snap.docs) {
-        await deleteDoc(slotDoc.ref);
-      }
+      const snapshot = await getDocs(query(collection(db, "slots"), where("specialistId", "==", hairdresser.id)));
+      await Promise.all(snapshot.docs.map(docSnap => deleteDoc(docSnap.ref)));
       await loadHairdressers();
+      if (selectedHairdresserId === hairdresser.id) {
+        setSelectedHairdresserId("");
+      }
       alert("Специалист удален");
-    } catch (e: any) {
-      alert(e.message || "Не удалось удалить специалиста");
+    } catch (error: any) {
+      alert(error.message || "Не удалось удалить специалиста");
     } finally {
       setDeletingHairdresser(null);
     }
   };
 
-  return (
-    <>
-      <Navbar />
-      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-6 space-y-8">
-        <div className="flex flex-col gap-2">
-          <h2 className="section-title">Админ-панель</h2>
-          <p className="text-sm text-slate-500">Управляйте пользователями, специалистами, расписанием и записями.</p>
-        </div>
+  const filteredUsers = useMemo(() => {
+    const term = userSearch.trim().toLowerCase();
+    if (!term) return users;
+    return users.filter(user => `${user.name || ""} ${user.email}`.toLowerCase().includes(term));
+  }, [users, userSearch]);
 
-        <div className="flex flex-wrap gap-2 bg-white/70 border border-white/60 rounded-2xl p-2 shadow-sm">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
-                activeTab === tab.id
-                  ? "bg-primary text-white shadow shadow-primary/30"
-                  : "text-slate-600 hover:bg-white"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+  const filteredHairdressers = useMemo(() => {
+    const term = hairdresserSearch.trim().toLowerCase();
+    if (!term) return hairdressers;
+    return hairdressers.filter(hairdresser => `${hairdresser.name || ""} ${hairdresser.address || ""}`.toLowerCase().includes(term));
+  }, [hairdressers, hairdresserSearch]);
 
-        {activeTab === "appointments" && (
-          <section className="card-surface p-5 sm:p-6 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <h3 className="text-xl font-semibold">Все записи</h3>
-              <span className="text-sm text-slate-500">Всего: {appointments.length}</span>
-            </div>
-            <div className="grid gap-3">
-              {appointments.length === 0 ? (
-                <div className="text-slate-500 text-sm">Записей нет</div>
-              ) : (
-                appointments
-                  .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
-                  .map(a => {
-                    const phoneDigits = a.userPhone ? String(a.userPhone).replace(/\D/g, "") : "";
-                    const whatsappLink = phoneDigits ? `https://wa.me/${phoneDigits}` : "";
-                    return (
-                      <div key={a.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="text-sm space-y-1">
-                          <div className="font-semibold text-slate-800">{a.hairdresserName}</div>
-                          {a.hairdresserAddress && <div className="text-slate-500">{a.hairdresserAddress}</div>}
-                          <div className="text-slate-600">{formatDateTime(a.date, a.time)}</div>
-                          <div className="text-slate-500">
-                            {a.userName}
-                            {a.userPhone ? ` — ${a.userPhone}` : ""}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {whatsappLink && (
-                            <a
-                              href={whatsappLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-3 py-1.5 rounded-xl bg-emerald-500 text-white text-sm hover:bg-emerald-600 transition"
-                            >
-                              Написать в WhatsApp
-                            </a>
-                          )}
-                          <button
-                            onClick={async () => {
-                              if (!window.confirm("Отменить запись и освободить слот?")) return;
-                              try {
-                                if (a.slotId) {
-                                  await updateDoc(doc(db, "slots", a.slotId), { booked: false, userId: null });
-                                }
-                                await deleteDoc(doc(db, "appointments", a.id));
-                                setAppointments(prev => prev.filter(x => x.id !== a.id));
-                                alert("Запись отменена");
-                              } catch (e: any) {
-                                alert(e.message || "Ошибка отмены");
-                              }
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-red-500 text-white text-sm hover:bg-red-600 transition"
-                          >
-                            Отменить
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-              )}
-            </div>
-          </section>
-        )}
+  const selectedHairdresser = useMemo(
+    () => hairdressers.find(hairdresser => hairdresser.id === selectedHairdresserId),
+    [hairdressers, selectedHairdresserId]
+  );
 
-        {activeTab === "schedule" && (
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case "appointments":
+        return (
+          <AppointmentsTab
+            appointments={appointments}
+            onCancel={handleCancelAppointment}
+            onExport={handleExportAppointments}
+          />
+        );
+      case "schedule":
+        return (
           <section className="card-surface p-5 sm:p-6 space-y-4">
             <h3 className="text-xl font-semibold">Рабочие часы и генерация слотов</h3>
-        <div className="grid gap-4">
+            <div className="grid gap-4">
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="grid gap-1">
                   <label className="text-sm text-slate-500">Специалист</label>
                   <select
                     className="border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    value={selectedH}
-                    onChange={e => setSelectedH(e.target.value)}
+                    value={selectedHairdresserId}
+                    onChange={e => setSelectedHairdresserId(e.target.value)}
                   >
                     <option value="">Выберите специалиста</option>
-                    {hairdressers.map(h => (
-                      <option key={h.id} value={h.id}>
-                        {h.name}
+                    {hairdressers.map(hairdresser => (
+                      <option key={hairdresser.id} value={hairdresser.id}>
+                        {hairdresser.name}
                       </option>
                     ))}
                   </select>
@@ -462,16 +526,16 @@ const Admin: React.FC = () => {
                 <div className="grid gap-1 sm:col-span-2 lg:col-span-1">
                   <label className="text-sm text-slate-500">Дни недели</label>
                   <div className="flex flex-wrap gap-2">
-                    {[1, 2, 3, 4, 5, 6, 0].map(wd => (
+                    {[1, 2, 3, 4, 5, 6, 0].map(day => (
                       <button
-                        key={wd}
+                        key={day}
                         type="button"
-                        onClick={() => setWeekdays(prev => ({ ...prev, [wd]: !prev[wd] }))}
+                        onClick={() => setWeekdays(prev => ({ ...prev, [day]: !prev[day] }))}
                         className={`px-3 py-1 rounded-full border text-sm transition ${
-                          weekdays[wd] ? "bg-primary text-white border-primary" : "border-slate-200 bg-white/80"
+                          weekdays[day] ? "bg-primary text-white border-primary" : "border-slate-200 bg-white/80"
                         }`}
                       >
-                        {"ПнВтСрЧтПтСбВс".match(/.{1,2}/g)?.[wd === 0 ? 6 : wd - 1]}
+                        {"ПнВтСрЧтПтСбВс".match(/.{1,2}/g)?.[day === 0 ? 6 : day - 1]}
                       </button>
                     ))}
                   </div>
@@ -507,7 +571,7 @@ const Admin: React.FC = () => {
                     className="border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40"
                     value={vacationFrom}
                     onChange={e => setVacationFrom(e.target.value)}
-                    disabled={!selectedH}
+                    disabled={!selectedHairdresserId}
                   />
                 </div>
                 <div className="grid gap-1">
@@ -517,7 +581,7 @@ const Admin: React.FC = () => {
                     className="border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40"
                     value={vacationTo}
                     onChange={e => setVacationTo(e.target.value)}
-                    disabled={!selectedH}
+                    disabled={!selectedHairdresserId}
                   />
                 </div>
               </div>
@@ -525,8 +589,16 @@ const Admin: React.FC = () => {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
+                  onClick={handleGenerateSlots}
+                  disabled={!selectedHairdresserId || generatingSlots}
+                  className="px-3 py-1.5 rounded-xl bg-primary text-white hover:bg-purple-700 transition disabled:opacity-60"
+                >
+                  {generatingSlots ? "Генерация..." : "Сохранить часы и сгенерировать слоты"}
+                </button>
+                <button
+                  type="button"
                   onClick={handleSaveVacation}
-                  disabled={!selectedH || savingVacation}
+                  disabled={!selectedHairdresserId || savingVacation}
                   className="px-3 py-1.5 rounded-xl bg-amber-500 text-white hover:bg-amber-600 transition disabled:opacity-60"
                 >
                   {savingVacation ? "Сохранение..." : "Сохранить отпуск"}
@@ -534,76 +606,31 @@ const Admin: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleClearVacation}
-                  disabled={!selectedH || savingVacation || (!selectedHairdresserInfo?.vacation?.from && !selectedHairdresserInfo?.vacation?.to)}
+                  disabled={!selectedHairdresserId || savingVacation || !selectedHairdresser?.vacation?.from}
                   className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-600 hover:bg-slate-100 transition disabled:opacity-60"
                 >
                   Снять отпуск
                 </button>
                 <button
                   type="button"
-                  onClick={openSlotsModal}
-                  disabled={!selectedH}
+                  onClick={() => openSlotsModal(selectedHairdresserId)}
+                  disabled={!selectedHairdresserId}
                   className="px-3 py-1.5 rounded-xl border border-primary text-primary hover:bg-primary hover:text-white transition disabled:opacity-60"
                 >
                   Просмотреть / удалить слоты
                 </button>
               </div>
 
-              {selectedHairdresserInfo?.vacation?.from && selectedHairdresserInfo?.vacation?.to && (
+              {selectedHairdresser?.vacation?.from && selectedHairdresser?.vacation?.to && (
                 <div className="text-sm text-slate-500">
-                  Текущий отпуск: {formatDate(selectedHairdresserInfo.vacation.from)} — {formatDate(selectedHairdresserInfo.vacation.to)}
+                  Текущий отпуск: {formatDate(selectedHairdresser.vacation.from)} — {formatDate(selectedHairdresser.vacation.to)}
                 </div>
               )}
-              {selectedHairdresserInfo?.vacation?.from && selectedHairdresserInfo?.vacation?.to && (
-                <div className="text-sm text-amber-600 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl">
-                  В период отпуска клиенты увидят заглушку вместо календаря.
-                </div>
-              )}
-
-              <button
-                disabled={generating || !selectedH || !rangeFrom || !rangeTo}
-                onClick={async () => {
-                  if (!selectedH) return;
-                  setGenerating(true);
-                  try {
-                    const from = new Date(rangeFrom);
-                    const to = new Date(rangeTo);
-                    for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
-                      const wd = d.getDay();
-                      if (!weekdays[wd]) continue;
-                      const dayIso = d.toISOString().slice(0, 10);
-                      const [sH, sM] = startTime.split(":").map(Number);
-                      const [eH, eM] = endTime.split(":").map(Number);
-                      const start = new Date(`${dayIso}T${String(sH).padStart(2, "0")}:${String(sM).padStart(2, "0")}:00`);
-                      const end = new Date(`${dayIso}T${String(eH).padStart(2, "0")}:${String(eM).padStart(2, "0")}:00`);
-                      for (let t = new Date(start); t < end; t.setMinutes(t.getMinutes() + stepMinutes)) {
-                        const hh = String(t.getHours()).padStart(2, "0");
-                        const mm = String(t.getMinutes()).padStart(2, "0");
-                        const timeStr = `${hh}:${mm}`;
-                        await addDoc(collection(db, "slots"), {
-                          specialistId: selectedH,
-                          date: dayIso,
-                          time: timeStr,
-                          booked: false
-                        });
-                      }
-                    }
-                    alert("Слоты сгенерированы");
-                  } catch (e: any) {
-                    alert(e.message || "Ошибка генерации слотов");
-                  } finally {
-                    setGenerating(false);
-                  }
-                }}
-                className="inline-flex items-center justify-center bg-primary text-white px-5 py-2.5 rounded-2xl hover:bg-purple-700 transition shadow shadow-primary/30 disabled:opacity-60"
-              >
-                {generating ? "Генерация..." : "Сохранить часы и сгенерировать слоты"}
-              </button>
             </div>
           </section>
-        )}
-
-        {activeTab === "people" && (
+        );
+      case "people":
+        return (
           <div className="space-y-8">
             <section className="card-surface p-5 sm:p-6 space-y-4">
               <h3 className="text-xl font-semibold">Добавить специалиста</h3>
@@ -631,11 +658,12 @@ const Admin: React.FC = () => {
                 />
               </div>
               <button
-                disabled={saving}
+                type="button"
+                disabled={savingHairdresser}
                 onClick={handleAddHairdresser}
                 className="inline-flex items-center justify-center bg-primary text-white px-5 py-2.5 rounded-2xl hover:bg-purple-700 transition shadow shadow-primary/30 disabled:opacity-60"
               >
-                {saving ? "Сохранение..." : "Добавить парикмахера"}
+                {savingHairdresser ? "Сохранение..." : "Добавить парикмахера"}
               </button>
             </section>
 
@@ -652,26 +680,26 @@ const Admin: React.FC = () => {
                 {filteredHairdressers.length === 0 && (
                   <div className="text-sm text-slate-500">Специалисты не найдены</div>
                 )}
-                {filteredHairdressers.map((h: any) => (
+                {filteredHairdressers.map(hairdresser => (
                   <div
-                    key={h.id}
+                    key={hairdresser.id}
                     className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3"
                   >
                     <div className="min-w-0 space-y-1">
-                      <p className="font-semibold text-sm sm:text-base truncate">{h.name || "Без имени"}</p>
-                      {h.address && <p className="text-xs text-slate-500 truncate">{h.address}</p>}
+                      <p className="font-semibold text-sm sm:text-base truncate">{hairdresser.name || "Без имени"}</p>
+                      {hairdresser.address && <p className="text-xs text-slate-500 truncate">{hairdresser.address}</p>}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() => openEditHairdresser(h)}
+                        onClick={() => openEditHairdresser(hairdresser)}
                         className="px-3 py-1.5 rounded-xl border border-primary text-primary text-sm hover:bg-primary hover:text-white transition"
                       >
                         Редактировать
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDeleteHairdresser(h)}
+                        onClick={() => handleDeleteHairdresser(hairdresser)}
                         className="px-3 py-1.5 rounded-xl border border-red-400 text-red-500 text-sm hover:bg-red-500 hover:text-white transition"
                       >
                         Удалить
@@ -718,9 +746,9 @@ const Admin: React.FC = () => {
                         onChange={e => handleChangeRole(user.uid, e.target.value)}
                         className="border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                       >
-                        {roles.map(r => (
-                          <option key={r} value={r}>
-                            {r}
+                        {roles.map(role => (
+                          <option key={role} value={role}>
+                            {role}
                           </option>
                         ))}
                       </select>
@@ -737,12 +765,53 @@ const Admin: React.FC = () => {
               </div>
             </section>
           </div>
-        )}
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <>
+      <Navbar />
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-6 space-y-8">
+        <div className="flex flex-col gap-2">
+          <h2 className="section-title">Админ-панель</h2>
+          <p className="text-sm text-slate-500">Управляйте пользователями, специалистами, расписанием и записями.</p>
+        </div>
+
+        <div className="flex flex-wrap gap-2 bg-white/70 border border-white/60 rounded-2xl p-2 shadow-sm">
+          {[{ id: "appointments", label: "Записи" }, { id: "schedule", label: "Рабочие часы" }, { id: "people", label: "Пользователи" }].map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id as AdminTab)}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
+                activeTab === tab.id ? "bg-primary text-white shadow shadow-primary/30" : "text-slate-600 hover:bg-white"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-6"
+          >
+            {renderTabContent()}
+          </motion.div>
+        </AnimatePresence>
       </div>
 
       {editingUser && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md grid gap-4">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={() => setEditingUser(null)}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md grid gap-4" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-center">Редактирование пользователя</h3>
             <input
               type="text"
@@ -841,7 +910,10 @@ const Admin: React.FC = () => {
       {slotsModalOpen && (
         <div
           className="fixed inset-0 bg-black/60 flex items-center justify-center p-3 sm:p-4 z-50"
-          onClick={() => setSlotsModalOpen(false)}
+          onClick={() => {
+            setSlotsModalOpen(false);
+            setSlotsModalHairdresserId(null);
+          }}
         >
           <div
             className="bg-white rounded-2xl shadow-xl p-4 sm:p-6 w-full max-w-lg sm:max-w-2xl grid gap-4 max-h-[85vh] overflow-hidden"
@@ -851,7 +923,10 @@ const Admin: React.FC = () => {
               <h3 className="text-lg font-bold">Слоты специалиста</h3>
               <button
                 type="button"
-                onClick={() => setSlotsModalOpen(false)}
+                onClick={() => {
+                  setSlotsModalOpen(false);
+                  setSlotsModalHairdresserId(null);
+                }}
                 className="text-slate-500 hover:text-slate-700"
               >
                 ✕
@@ -864,7 +939,7 @@ const Admin: React.FC = () => {
                   if (selectedSlotsModal.size === slotsList.length) {
                     setSelectedSlotsModal(new Set());
                   } else {
-                    setSelectedSlotsModal(new Set(slotsList.map(s => s.id)));
+                    setSelectedSlotsModal(new Set(slotsList.map(slot => slot.id)));
                   }
                 }}
                 className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-600 hover:bg-slate-100 transition"
@@ -906,15 +981,13 @@ const Admin: React.FC = () => {
                           }}
                           disabled={slot.booked}
                         />
-                        <span className="truncate">
-                          {formatDateTime(slot.date, slot.time)}
-                        </span>
+                        <span className="truncate">{formatDateTime(slot.date, slot.time)}</span>
                         {slot.booked && (
                           <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs whitespace-nowrap">
                             занято
                           </span>
                         )}
-                      </div>
+              </div>
                       <button
                         type="button"
                         onClick={() => handleDeleteSlot(slot.id)}
@@ -925,13 +998,13 @@ const Admin: React.FC = () => {
                         <span className="sm:hidden">🗑</span>
                         <span className="hidden sm:inline">{deletingSlotId === slot.id ? "Удаление..." : "Удалить"}</span>
                       </button>
-                    </div>
-                  ))}
+            </div>
+          ))}
                 </div>
               )}
             </div>
-          </div>
         </div>
+      </div>
       )}
     </>
   );
