@@ -13,21 +13,27 @@ const Navbar: React.FC = () => {
   };
 
   return (
-<nav className="bg-gradient-to-r from-primary to-secondary text-white shadow-soft p-4 flex justify-between items-center">
+<nav className="bg-gradient-to-r from-primary to-secondary text-white shadow-soft px-4 py-3 flex flex-wrap gap-3 sm:flex-nowrap sm:gap-6 justify-between items-center">
   <Link to="/" className="font-bold text-2xl tracking-wide hover:opacity-80 transition">
     HairSalon
   </Link>
-  <div className="flex gap-4 items-center">
+  <div className="flex flex-wrap sm:flex-nowrap gap-2 sm:gap-4 items-center justify-end text-sm sm:text-base">
     {user ? (
       <>
-        <span className="font-medium">{user.displayName}</span>
+        <span className="font-medium truncate max-w-[140px] sm:max-w-[180px]">
+          {user.displayName || user.email}
+        </span>
         <Link to={role === "specialist" ? "/specialist" : "/profile"} className="hover:underline transition">
           Профиль
         </Link>
-        {role === "admin" && <Link to="/admin" className="hover:underline transition">Админка</Link>}
+        {role === "admin" && (
+          <Link to="/admin" className="hover:underline transition">
+            Админка
+          </Link>
+        )}
         <button
           onClick={handleLogout}
-          className="bg-white text-primary px-4 py-2 rounded-xl font-semibold hover:bg-gray-100 transition shadow hover:shadow-hover"
+          className="bg-white text-primary px-4 py-2 rounded-xl font-semibold hover:bg-gray-100 transition shadow hover:shadow-hover whitespace-nowrap"
         >
           Выйти
         </button>
