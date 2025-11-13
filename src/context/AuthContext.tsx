@@ -1,7 +1,9 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { auth, db } from "../services/firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+
+const MIN_LOADING_DURATION = 1200;
 
 interface AuthContextType {
   user: User | null;
@@ -19,9 +21,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const loadingStartRef = useRef<number>(Date.now());
 
   useEffect(() => {
+    let isMounted = true;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      loadingStartRef.current = Date.now();
+      setLoading(true);
       setUser(firebaseUser);
       if (firebaseUser) {
         try {
@@ -35,9 +43,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // опционально: можно залогировать e в консоль
         }
       } else setRole(null);
-      setLoading(false);
+
+      const elapsed = Date.now() - loadingStartRef.current;
+      const remaining = Math.max(0, MIN_LOADING_DURATION - elapsed);
+
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        if (isMounted) setLoading(false);
+      }, remaining);
     });
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, []);
 
   return (

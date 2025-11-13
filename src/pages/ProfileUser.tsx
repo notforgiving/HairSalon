@@ -6,6 +6,48 @@ import Navbar from "../components/Navbar";
 import { motion } from "framer-motion";
 import { updateProfile, updateEmail } from "firebase/auth";
 
+const extractDigits = (value: string) => value.replace(/\D/g, "");
+
+const normalizePhoneDigits = (raw: string) => {
+  const digits = extractDigits(raw);
+  if (!digits) return "";
+  const withoutLeading = digits.replace(/^8/, "").replace(/^7/, "");
+  return (`8${withoutLeading}`).slice(0, 11);
+};
+
+const formatPhoneMasked = (digits: string) => {
+  if (!digits) return "";
+  let formatted = digits[0];
+  const part1 = digits.slice(1, 4);
+  const part2 = digits.slice(4, 7);
+  const part3 = digits.slice(7, 9);
+  const part4 = digits.slice(9, 11);
+
+  if (part1) {
+    formatted += ` (${part1}`;
+    formatted += part1.length === 3 ? ")" : "";
+  }
+  if (part2) {
+    formatted += part1.length === 3 ? ` ${part2}` : part2;
+  }
+  if (part3) {
+    formatted += `-${part3}`;
+  }
+  if (part4) {
+    formatted += `-${part4}`;
+  }
+
+  return formatted;
+};
+
+const validatePhone = (digits: string) => {
+  if (!digits) return "Введите номер телефона.";
+  if (digits.length !== 11) return "Номер должен содержать 11 цифр (например, 8 9XX XXX-XX-XX).";
+  if (!digits.startsWith("8")) return "Номер должен начинаться с 8.";
+  if (digits[1] !== "9") return "Введите мобильный номер, начинающийся с 89.";
+  return "";
+};
+
 interface Appointment {
   id: string;
   hairdresserName: string;
@@ -22,8 +64,17 @@ const ProfileUser: React.FC = () => {
   const [displayName, setDisplayName] = useState<string>("");
   const [email, setEmail] = useState<string>("");
   const [phone, setPhone] = useState<string>("");
+  const [phoneDigits, setPhoneDigits] = useState<string>("");
+  const [phoneError, setPhoneError] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [mustFillPhone, setMustFillPhone] = useState(false);
+
+  const handlePhoneChange = (value: string) => {
+    const normalized = normalizePhoneDigits(value);
+    setPhoneDigits(normalized);
+    setPhone(normalized ? formatPhoneMasked(normalized) : "");
+    if (phoneError) setPhoneError("");
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -41,8 +92,10 @@ const ProfileUser: React.FC = () => {
       const uref = doc(db, "users", user.uid);
       const u = await getDoc(uref);
       const p = (u.exists() && (u.data() as any).phone) || "";
-      setPhone(p);
-      setMustFillPhone(!p);
+      const normalized = normalizePhoneDigits(p);
+      setPhoneDigits(normalized);
+      setPhone(formatPhoneMasked(normalized));
+      setMustFillPhone(!normalized);
     })();
   }, [user]);
 
@@ -54,18 +107,20 @@ const ProfileUser: React.FC = () => {
 
   const handleSaveProfile = async () => {
     if (!user) return;
-    if (!phone.trim()) {
-      alert("Пожалуйста, укажите номер телефона");
+    const validationError = validatePhone(phoneDigits);
+    if (validationError) {
+      setPhoneError(validationError);
       setMustFillPhone(true);
       return;
     }
+    setPhoneError("");
     setSaving(true);
     try {
       await updateProfile(user, { displayName });
       if (email && email !== user.email) {
         await updateEmail(user, email);
       }
-      await updateDoc(doc(db, "users", user.uid), { phone });
+      await updateDoc(doc(db, "users", user.uid), { phone: phoneDigits });
       setMustFillPhone(false);
       alert("Профиль обновлен");
     } catch (e: any) {
@@ -77,13 +132,15 @@ const ProfileUser: React.FC = () => {
 
   const handleQuickPhoneSave = async () => {
     if (!user) return;
-    if (!phone.trim()) {
-      alert("Введите номер телефона");
+    const validationError = validatePhone(phoneDigits);
+    if (validationError) {
+      setPhoneError(validationError);
       return;
     }
+    setPhoneError("");
     setSaving(true);
     try {
-      await updateDoc(doc(db, "users", user.uid), { phone });
+      await updateDoc(doc(db, "users", user.uid), { phone: phoneDigits });
       setMustFillPhone(false);
     } catch (e: any) {
       alert(e.message || "Ошибка сохранения телефона");
@@ -124,13 +181,17 @@ const ProfileUser: React.FC = () => {
               value={email}
               onChange={e => setEmail(e.target.value)}
             />
-            <input
-              type="tel"
-              className="border p-2 rounded"
-              placeholder="Телефон (обязательно)"
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
-            />
+            <div className="grid gap-1">
+              <input
+                type="tel"
+                inputMode="tel"
+                className={`border p-2 rounded ${phoneError ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
+                placeholder="Телефон (обязательно)"
+                value={phone}
+                onChange={e => handlePhoneChange(e.target.value)}
+              />
+              {phoneError && <span className="text-xs text-red-500">{phoneError}</span>}
+            </div>
             <button
               disabled={saving}
               onClick={handleSaveProfile}
@@ -197,13 +258,17 @@ const ProfileUser: React.FC = () => {
             <p className="text-sm text-gray-600 text-center">
               Чтобы продолжить пользоваться сервисом, нам нужен ваш контактный номер.
             </p>
-            <input
-              type="tel"
-              className="border p-2 rounded"
-              placeholder="Телефон"
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
-            />
+            <div className="grid gap-1">
+              <input
+                type="tel"
+                inputMode="tel"
+                className={`border p-2 rounded ${phoneError ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
+                placeholder="Телефон"
+                value={phone}
+                onChange={e => handlePhoneChange(e.target.value)}
+              />
+              {phoneError && <span className="text-xs text-red-500">{phoneError}</span>}
+            </div>
             <button
               onClick={handleQuickPhoneSave}
               disabled={saving}
