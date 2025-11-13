@@ -4,11 +4,10 @@ import { FiUser } from "react-icons/fi";
 interface CardProps {
   name: string;
   specialization: string;
-  rating: number;
   photoUrl?: string;
 }
 
-const CardHairdresser: React.FC<CardProps> = ({ name, specialization, rating, photoUrl }) => {
+const CardHairdresser: React.FC<CardProps> = ({ name, specialization, photoUrl }) => {
   return (
     <motion.div
       whileHover={{ y: -2, boxShadow: "0 12px 24px rgba(0,0,0,0.08)" }}
@@ -28,7 +27,6 @@ const CardHairdresser: React.FC<CardProps> = ({ name, specialization, rating, ph
       <div className="flex-1 min-w-0">
         <h3 className="font-semibold text-base sm:text-lg truncate">{name}</h3>
         <p className="text-gray-500 text-sm truncate">{specialization}</p>
-        <div className="mt-1 text-yellow-500 text-sm">★ {rating.toFixed(1)}</div>
       </div>
     </motion.div>
   );

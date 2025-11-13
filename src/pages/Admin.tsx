@@ -16,7 +16,6 @@ const Admin: React.FC = () => {
 
   const [hName, setHName] = useState("");
   const [hSpec, setHSpec] = useState("");
-  const [hRating, setHRating] = useState<number>(5);
   const [hPhotoUrl, setHPhotoUrl] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
@@ -64,12 +63,10 @@ const Admin: React.FC = () => {
       await addDoc(collection(db, "hairdressers"), {
         name: hName,
         specialization: hSpec,
-        rating: hRating,
         photoUrl: hPhotoUrl || ""
       });
       setHName("");
       setHSpec("");
-      setHRating(5);
       setHPhotoUrl("");
       await loadHairdressers();
       alert("Парикмахер сохранен");
@@ -134,18 +131,6 @@ const Admin: React.FC = () => {
               value={hSpec}
               onChange={e => setHSpec(e.target.value)}
             />
-            <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2">
-              <label className="text-sm text-slate-500 whitespace-nowrap">Рейтинг</label>
-              <input
-                type="number"
-                min={0}
-                max={5}
-                step={0.5}
-                className="w-full bg-transparent focus:outline-none"
-                value={hRating}
-                onChange={e => setHRating(Number(e.target.value))}
-              />
-            </div>
             <input
               type="url"
               placeholder="Ссылка на фото (опционально)"

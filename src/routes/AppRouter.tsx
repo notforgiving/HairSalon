@@ -7,11 +7,12 @@ import ProfileSpecialist from "../pages/ProfileSpecialist";
 import Admin from "../pages/Admin";
 import NotFound from "../pages/NotFound";
 import { useAuth } from "../context/AuthContext";
+import FullScreenLoader from "../components/FullScreenLoader";
 
 const AppRouter = () => {
   const { user, loading, role } = useAuth();
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) return <FullScreenLoader />;
 
   const RequireRole = ({ allowedRoles, children }: { allowedRoles: string[]; children: JSX.Element }) => {
     if (!user) return <Navigate to="/login" />;

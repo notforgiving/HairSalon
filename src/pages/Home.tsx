@@ -11,14 +11,12 @@ interface Hairdresser {
   name: string;
   photoUrl?: string;
   specialization: string;
-  rating: number;
 }
 
 const Home: React.FC = () => {
   const { user, role } = useAuth();
   const [hairdressers, setHairdressers] = useState<Hairdresser[]>([]);
   const [filterSpec, setFilterSpec] = useState<string>("");
-  const [minRating, setMinRating] = useState<number>(0);
   const [selected, setSelected] = useState<Hairdresser | null>(null);
   const [slots, setSlots] = useState<{ id: string; date: string; time: string }[]>([]);
   const [days, setDays] = useState<{ label: string; iso: string }[]>([]);
@@ -48,8 +46,7 @@ const Home: React.FC = () => {
   }, []);
 
   const filtered = hairdressers.filter(h =>
-    (filterSpec ? h.specialization === filterSpec : true) &&
-    h.rating >= minRating
+    (filterSpec ? h.specialization === filterSpec : true)
   );
 
   const openBooking = async (h: Hairdresser) => {
@@ -125,18 +122,6 @@ const Home: React.FC = () => {
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
-          </div>
-          <div className="flex flex-col">
-            <label className="text-sm text-gray-600 mb-1">Мин. рейтинг</label>
-            <input
-              type="number"
-              min={0}
-              max={5}
-              step={0.5}
-              value={minRating}
-              onChange={(e) => setMinRating(Number(e.target.value))}
-              className="border rounded p-2 w-28"
-            />
           </div>
         </div>
 
