@@ -9,6 +9,7 @@ import { updateProfile, updateEmail } from "firebase/auth";
 interface Appointment {
   id: string;
   hairdresserName: string;
+  hairdresserAddress?: string;
   service?: string;
   date: string;
   time: string;
@@ -164,6 +165,7 @@ const ProfileUser: React.FC = () => {
               <div>
                 <p className="font-semibold">{a.hairdresserName}</p>
                 {a.service && <p>{a.service}</p>}
+                {a.hairdresserAddress && <p className="text-gray-600 text-sm max-w-md">{a.hairdresserAddress}</p>}
                 <p>{new Date(`${a.date}T${a.time}:00`).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>
               </div>
               {activeTab === "upcoming" ? (

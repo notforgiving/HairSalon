@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { auth, provider } from "../services/firebase";
+import { auth, provider, db } from "../services/firebase";
 import { signInWithEmailAndPassword, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
 import { useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState("");
@@ -11,13 +12,47 @@ const Login: React.FC = () => {
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
+  const ensureUserDocument = async (firebaseUser: any) => {
+    if (!firebaseUser) return;
+    const userDoc = doc(db, "users", firebaseUser.uid);
+    const snapshot = await getDoc(userDoc);
+    if (!snapshot.exists()) {
+      await setDoc(userDoc, {
+        uid: firebaseUser.uid,
+        name: firebaseUser.displayName || "",
+        email: firebaseUser.email || "",
+        role: "user",
+        phone: "",
+        address: "",
+        createdAt: new Date()
+      });
+    }
+  };
+
   const handleLogin = async () => {
     try {
       setLoading(true);
-      await signInWithEmailAndPassword(auth, email, password);
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      await ensureUserDocument(result.user);
       navigate("/");
     } catch (err: any) {
-      setError(err.message);
+      switch (err.code) {
+        case "auth/invalid-email":
+          setError("Некорректный email");
+          break;
+        case "auth/user-disabled":
+          setError("Пользователь заблокирован");
+          break;
+        case "auth/user-not-found":
+        case "auth/wrong-password":
+          setError("Неверный email или пароль");
+          break;
+        case "auth/too-many-requests":
+          setError("Слишком много попыток. Попробуйте позже.");
+          break;
+        default:
+          setError("Не удалось выполнить вход. Попробуйте еще раз.");
+      }
     } finally {
       setLoading(false);
     }
@@ -26,10 +61,11 @@ const Login: React.FC = () => {
   const handleGoogleLogin = async () => {
     try {
       setLoading(true);
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      await ensureUserDocument(result.user);
       navigate("/");
     } catch (err: any) {
-      setError(err.message);
+      setError("Не удалось войти через Google. Попробуйте снова.");
     } finally {
       setLoading(false);
     }

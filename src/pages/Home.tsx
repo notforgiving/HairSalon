@@ -10,13 +10,12 @@ interface Hairdresser {
   id: string;
   name: string;
   photoUrl?: string;
-  specialization: string;
+  address?: string;
 }
 
 const Home: React.FC = () => {
   const { user, role } = useAuth();
   const [hairdressers, setHairdressers] = useState<Hairdresser[]>([]);
-  const [filterSpec, setFilterSpec] = useState<string>("");
   const [selected, setSelected] = useState<Hairdresser | null>(null);
   const [slots, setSlots] = useState<{ id: string; date: string; time: string }[]>([]);
   const [days, setDays] = useState<{ label: string; iso: string }[]>([]);
@@ -24,40 +23,15 @@ const Home: React.FC = () => {
   const [bookingError, setBookingError] = useState<string>("");
   const [selectedSlot, setSelectedSlot] = useState<{ id: string; date: string; time: string } | null>(null);
 
-  useEffect(() => {
-    const fetchHairdressers = async () => {
-      const snapshot = await getDocs(collection(db, "hairdressers"));
-      const data: Hairdresser[] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Hairdresser));
-      setHairdressers(data);
-    };
-    fetchHairdressers();
-
-    // build next 14 days
-    const today = new Date();
-    const list: { label: string; iso: string }[] = [];
-    for (let i = 0; i < 14; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
-      const iso = d.toISOString().slice(0, 10);
-      const label = d.toLocaleDateString("ru-RU", { weekday: "short", day: "2-digit", month: "2-digit" });
-      list.push({ iso, label });
-    }
-    setDays(list);
-  }, []);
-
-  const filtered = hairdressers.filter(h =>
-    (filterSpec ? h.specialization === filterSpec : true)
-  );
-
-  const openBooking = async (h: Hairdresser) => {
-    setSelected(h);
+  const loadSlotsForHairdresser = async (hairdresser: Hairdresser) => {
+    setSelected(hairdresser);
     setSelectedSlot(null);
     setBookingError("");
     setLoadingSlots(true);
     try {
       const qSlots = query(
         collection(db, "slots"),
-        where("specialistId", "==", h.id),
+        where("specialistId", "==", hairdresser.id),
         where("booked", "==", false)
       );
       const snap = await getDocs(qSlots);
@@ -70,6 +44,32 @@ const Home: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    const fetchHairdressers = async () => {
+      const snapshot = await getDocs(collection(db, "hairdressers"));
+      const data: Hairdresser[] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Hairdresser));
+      setHairdressers(data);
+      if (data.length > 0) {
+        loadSlotsForHairdresser(data[0]);
+      } else {
+        setSelected(null);
+        setSlots([]);
+      }
+    };
+    fetchHairdressers();
+
+    const today = new Date();
+    const list: { label: string; iso: string }[] = [];
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      const iso = d.toISOString().slice(0, 10);
+      const label = d.toLocaleDateString("ru-RU", { weekday: "short", day: "2-digit", month: "2-digit" });
+      list.push({ iso, label });
+    }
+    setDays(list);
+  }, []);
+
   const bookSelectedSlot = async () => {
     if (!user || role !== "user" || !selected || !selectedSlot) {
       setBookingError("Только авторизованные пользователи могут бронировать");
@@ -81,7 +81,6 @@ const Home: React.FC = () => {
     try {
       const userDoc = await getDoc(doc(db, "users", user.uid));
       const userPhone = userDoc.exists() ? (userDoc.data() as any).phone || "" : "";
-      // create appointment
       await addDoc(collection(db, "appointments"), {
         userId: user.uid,
         userName: user.displayName || user.email,
@@ -89,12 +88,12 @@ const Home: React.FC = () => {
         userPhone,
         specialistId: selected.id,
         hairdresserName: selected.name,
+        hairdresserAddress: selected.address || "",
         date: slot.date,
         time: slot.time,
         slotId: slot.id,
         createdAt: new Date()
       });
-      // mark slot as booked
       await updateDoc(doc(db, "slots", slot.id), { booked: true, userId: user.uid });
       alert("Вы успешно записались!");
       setSelected(null);
@@ -109,41 +108,31 @@ const Home: React.FC = () => {
       <Navbar />
 
       <div className="p-6">
-        <div className="flex flex-wrap gap-4 mb-6 items-end">
-          <div className="flex flex-col">
-            <label className="text-sm text-gray-600 mb-1">Специализация</label>
-            <select
-              value={filterSpec}
-              onChange={(e) => setFilterSpec(e.target.value)}
-              className="border rounded p-2"
-            >
-              <option value="">Все</option>
-              {[...new Set(hairdressers.map(h => h.specialization))].map(s => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           <div className="lg:col-span-1 grid gap-4">
-            {filtered.map(h => (
+            {hairdressers.map(h => (
               <button
                 key={h.id}
-                onClick={() => openBooking(h)}
-                className={`text-left ${selected?.id === h.id ? "ring-2 ring-primary" : ""}`}
+                onClick={() => loadSlotsForHairdresser(h)}
+                className="text-left"
               >
-                <CardHairdresser {...h} />
+                <CardHairdresser name={h.name} photoUrl={h.photoUrl} isActive={selected?.id === h.id} />
               </button>
             ))}
+            {hairdressers.length === 0 && <div className="text-gray-500">Специалисты пока не добавлены</div>}
           </div>
 
           <div className="lg:col-span-2">
             {!selected ? (
               <div className="text-gray-600">Выберите специалиста слева, чтобы увидеть доступные слоты</div>
             ) : (
-              <div className="bg-white rounded-xl shadow p-4">
-                <h3 className="text-xl font-bold mb-4">Доступные окошки — {selected.name}</h3>
+              <div className="bg-white rounded-xl shadow p-4 space-y-4">
+                <div>
+                  <h3 className="text-xl font-bold">Доступные окошки — {selected.name}</h3>
+                  {selected.address && (
+                    <p className="text-sm text-gray-600 mt-1">Адрес: {selected.address}</p>
+                  )}
+                </div>
                 {loadingSlots ? (
                   <p>Загрузка слотов...</p>
                 ) : (
@@ -191,7 +180,6 @@ const Home: React.FC = () => {
           </div>
         </div>
       </div>
-
     </>
   );
 };

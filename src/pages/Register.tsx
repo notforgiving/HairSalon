@@ -50,6 +50,12 @@ const Register: React.FC = () => {
           className="border p-2 rounded"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleRegister();
+            }
+          }}
         />
         <input
           type="email"
@@ -57,6 +63,12 @@ const Register: React.FC = () => {
           className="border p-2 rounded"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleRegister();
+            }
+          }}
         />
         <input
           type="password"
@@ -64,6 +76,12 @@ const Register: React.FC = () => {
           className="border p-2 rounded"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleRegister();
+            }
+          }}
         />
         <button
           onClick={handleRegister}
