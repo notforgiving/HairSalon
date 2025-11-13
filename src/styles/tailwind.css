@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply bg-slate-100;
+  }
+  body {
+    @apply min-h-screen bg-gradient-to-br from-slate-100 via-white to-violet-50 text-slate-900 font-sans antialiased;
+  }
+  ::selection {
+    @apply bg-primary text-white;
+  }
+}
+
+@layer components {
+  .card-surface {
+    @apply bg-white/90 backdrop-blur-sm border border-white/60 shadow-lg shadow-slate-200/60 rounded-3xl;
+  }
+  .section-title {
+    @apply text-2xl font-bold text-slate-800;
+  }
+}
