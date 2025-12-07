@@ -8,8 +8,8 @@ WORKDIR /app
 # Копируем package файлы
 COPY package*.json ./
 
-# Устанавливаем зависимости
-RUN npm ci --only=production
+# Устанавливаем ВСЕ зависимости (включая devDependencies для сборки)
+RUN npm install
 
 # Копируем исходный код
 COPY . .
@@ -17,8 +17,12 @@ COPY . .
 # Собираем проект
 RUN npm run build
 
+# Удаляем devDependencies после сборки (опционально, для уменьшения размера)
+RUN npm prune --production
+
 # Открываем порт (если нужен для health checks)
 EXPOSE 3000
 
 # Запускаем бота
 CMD ["npm", "start"]
+
