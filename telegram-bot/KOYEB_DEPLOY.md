@@ -81,12 +81,16 @@ Koyeb - отличный выбор для Telegram бота: бесплатны
    ```
 
 2. **Важно для FIREBASE_PRIVATE_KEY**:
-   - Обязательно оберните значение в кавычки `"`
-   - Сохраните все переносы строк `\n` как есть
-   - Пример правильного формата:
+   - **Способ 1 (рекомендуется)**: Оберните значение в кавычки `"` и сохраните `\n`:
      ```
      FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n"
      ```
+   - **Способ 2 (альтернатива)**: Без кавычек, но с `\n`:
+     ```
+     FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n
+     ```
+   - Код автоматически обработает оба формата
+   - Главное: сохраните все `\n` (не заменяйте на реальные переносы строк)
 
 3. Нажмите **"Add Variable"** для каждой переменной
 
@@ -162,6 +166,31 @@ Koyeb автоматически деплоит при каждом push в ос
 2. Убедитесь, что все переменные окружения установлены правильно
 3. Проверьте, что `TELEGRAM_BOT_TOKEN` указан верно
 4. Убедитесь, что `FIREBASE_PRIVATE_KEY` обернут в кавычки и содержит `\n`
+
+### Проблема: Ошибка "DECODER routines::unsupported" или "Getting metadata from plugin failed"
+
+**Это ошибка с Firebase приватным ключом. Решение:**
+
+1. **Проверьте формат FIREBASE_PRIVATE_KEY в Koyeb:**
+   - Откройте Settings → Environment Variables
+   - Убедитесь, что ключ обернут в кавычки: `"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"`
+   - Убедитесь, что все `\n` присутствуют (не заменены на реальные переносы строк)
+
+2. **Попробуйте пересоздать переменную:**
+   - Удалите старую переменную `FIREBASE_PRIVATE_KEY`
+   - Создайте новую с правильным форматом
+   - Скопируйте ключ из JSON файла Firebase полностью
+   - Оберните в кавычки и сохраните все `\n`
+
+3. **Альтернативный формат (без кавычек):**
+   ```
+   FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n
+   ```
+
+4. **После изменения переменной:**
+   - Сохраните изменения
+   - Дождитесь автоматического перезапуска сервиса
+   - Проверьте логи - должно появиться: `✅ Firebase Admin initialized successfully`
 
 ### Проблема: Ошибка сборки
 
