@@ -1,0 +1,14 @@
+node_modules
+dist
+.env
+*.log
+.DS_Store
+.git
+.gitignore
+README.md
+DEPLOYMENT_OPTIONS.md
+FIREBASE_SETUP.md
+railway.json
+fly.toml
+render.yaml
+
