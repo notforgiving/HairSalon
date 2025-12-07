@@ -28,6 +28,7 @@ coverage/
 .firebase/
 .firebaserc
 
-# lock duplicates
-package-lock.json
+# lock duplicates (игнорируем в корне, но не в telegram-bot)
+/package-lock.json
+!telegram-bot/package-lock.json
 
