@@ -51,7 +51,7 @@ const Login: React.FC = () => {
         const result = await getRedirectResult(auth);
         if (result?.user) {
           await ensureUserDocument(result.user);
-          navigate("/");
+          navigate("/profile");
         }
       } catch (err: any) {
         if (!isMounted) return;
@@ -105,7 +105,7 @@ const Login: React.FC = () => {
       setMessage("");
       const result = await signInWithEmailAndPassword(auth, email, password);
       await ensureUserDocument(result.user);
-      navigate("/");
+      navigate("/profile");
     } catch (err: any) {
       handleAuthError(err);
     } finally {
@@ -125,7 +125,7 @@ const Login: React.FC = () => {
       }
       const result = await signInWithPopup(auth, provider);
       await ensureUserDocument(result.user);
-      navigate("/");
+      navigate("/profile");
     } catch (err: any) {
       handleAuthError(err);
     } finally {

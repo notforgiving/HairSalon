@@ -5,10 +5,55 @@ import { setDoc, doc } from "firebase/firestore";
 import { useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 
+const extractDigits = (value: string) => value.replace(/\D/g, "");
+
+const normalizePhoneDigits = (raw: string) => {
+  const digits = extractDigits(raw);
+  if (!digits) return "";
+  const withoutLeading = digits.replace(/^8/, "").replace(/^7/, "");
+  return (`8${withoutLeading}`).slice(0, 11);
+};
+
+const formatPhoneMasked = (digits: string) => {
+  if (!digits) return "";
+  let formatted = digits[0];
+  const part1 = digits.slice(1, 4);
+  const part2 = digits.slice(4, 7);
+  const part3 = digits.slice(7, 9);
+  const part4 = digits.slice(9, 11);
+
+  if (part1) {
+    formatted += ` (${part1}`;
+    formatted += part1.length === 3 ? ")" : "";
+  }
+  if (part2) {
+    formatted += part1.length === 3 ? ` ${part2}` : part2;
+  }
+  if (part3) {
+    formatted += `-${part3}`;
+  }
+  if (part4) {
+    formatted += `-${part4}`;
+  }
+
+  return formatted;
+};
+
+const validatePhone = (digits: string) => {
+  if (!digits) return "Введите номер телефона.";
+  if (digits.length !== 11) return "Номер должен содержать 11 цифр (например, 8 9XX XXX-XX-XX).";
+  if (!digits.startsWith("8")) return "Номер должен начинаться с 8.";
+  if (digits[1] !== "9") return "Введите мобильный номер, начинающийся с 89.";
+  return "";
+};
+
 const Register: React.FC = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [phoneDigits, setPhoneDigits] = useState("");
+  const [phoneError, setPhoneError] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
@@ -28,24 +73,40 @@ const Register: React.FC = () => {
     }
   }, []);
 
+  const handlePhoneChange = (value: string) => {
+    const normalized = normalizePhoneDigits(value);
+    setPhoneDigits(normalized);
+    setPhone(normalized ? formatPhoneMasked(normalized) : "");
+    if (phoneError) setPhoneError("");
+  };
+
   const handleRegister = async () => {
     try {
       setLoading(true);
       setError("");
+      setPhoneError("");
 
       if (!name.trim()) {
         setError("Введите ваше имя, чтобы мы знали, как к вам обращаться.");
+        setLoading(false);
+        return;
+      }
+
+      const phoneValidationError = validatePhone(phoneDigits);
+      if (phoneValidationError) {
+        setPhoneError(phoneValidationError);
+        setLoading(false);
         return;
       }
 
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(userCredential.user, { displayName: name });
-      // Создаем запись в Firestore с ролью "user"
+      // Создаем запись в Firestore с ролью "user" и телефоном
       await setDoc(doc(db, "users", userCredential.user.uid), {
         uid: userCredential.user.uid,
         name,
         email,
-        phone: "",
+        phone: phoneDigits,
         role: "user",
         createdAt: new Date(),
       });
@@ -136,6 +197,37 @@ const Register: React.FC = () => {
                 }
               }}
             />
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <label className="text-sm font-medium text-gray-700" htmlFor="phone">
+              Телефон <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="phone"
+              type="tel"
+              inputMode="tel"
+              placeholder="8 (9XX) XXX-XX-XX"
+              className={`w-full rounded-lg border bg-white px-4 py-2.5 text-sm shadow-sm transition focus:outline-none focus:ring-2 ${
+                phoneError
+                  ? "border-red-300 focus:border-red-500 focus:ring-red-200"
+                  : "border-gray-200 focus:border-purple-500 focus:ring-purple-200"
+              }`}
+              value={phone}
+              onChange={(e) => handlePhoneChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleRegister();
+                }
+              }}
+            />
+            {phoneError && (
+              <span className="text-xs text-red-600">{phoneError}</span>
+            )}
+            <p className="text-xs text-gray-500">
+              Номер телефона необходим для связи с вами и подтверждения записи
+            </p>
           </div>
         </div>
 

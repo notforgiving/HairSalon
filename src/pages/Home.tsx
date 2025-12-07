@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { addDoc, collection, doc, getDoc, updateDoc } from "firebase/firestore";
+import { useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import HairdresserList from "../components/home/HairdresserList";
 import HairdresserListSkeleton from "../components/home/HairdresserListSkeleton";
@@ -31,10 +32,44 @@ const buildNextDays = (count = 14): DayItem[] => {
 
 const Home: React.FC = () => {
   const { user, role } = useAuth();
+  const navigate = useNavigate();
   const { hairdressers, loading: hairdressersLoading } = useHairdressers();
   const [selectedHairdresserId, setSelectedHairdresserId] = useState<string | undefined>(undefined);
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const days = useMemo(() => buildNextDays(), []);
+
+  // Проверяем телефон пользователя и перенаправляем на профиль, если его нет
+  useEffect(() => {
+    if (!user || role !== "user") return;
+    
+    const checkPhone = async () => {
+      try {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (!userDoc.exists()) {
+          navigate("/profile", { replace: true });
+          return;
+        }
+        
+        const userData = userDoc.data();
+        const phone = userData?.phone || "";
+        
+        // Нормализуем телефон для проверки
+        const digits = phone.replace(/\D/g, "");
+        const normalized = digits ? (digits.startsWith("7") ? "8" + digits.slice(1) : digits.startsWith("8") ? digits : "8" + digits).slice(0, 11) : "";
+        
+        // Если телефона нет или он невалидный, перенаправляем на профиль
+        if (!normalized || normalized.length !== 11 || !normalized.startsWith("89")) {
+          navigate("/profile", { replace: true });
+        }
+      } catch (error) {
+        console.error("Ошибка проверки телефона:", error);
+        // В случае ошибки перенаправляем на профиль
+        navigate("/profile", { replace: true });
+      }
+    };
+    
+    checkPhone();
+  }, [user, role, navigate]);
 
   const selectedHairdresser = useMemo<Hairdresser | null>(() => {
     if (!selectedHairdresserId) return null;
@@ -112,6 +147,27 @@ const Home: React.FC = () => {
     <>
       <Navbar />
       <div className="p-6">
+        {/* Информационный баннер о Telegram-боте */}
+        <div className="mb-6 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="text-3xl">📱</div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-gray-900 mb-1">Запись через Telegram</h3>
+              <p className="text-sm text-gray-700">
+                Для записи на прием зарегистрируйтесь в нашем Telegram-боте{" "}
+                <a
+                  href="https://t.me/olgafedor_bot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-blue-600 hover:text-blue-700 underline transition"
+                >
+                  @olgafedor_bot
+                </a>
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           <div className="lg:col-span-1">
             {hairdressersLoading ? (

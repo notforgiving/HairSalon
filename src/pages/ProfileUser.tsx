@@ -5,6 +5,7 @@ import { collection, query, where, getDocs, deleteDoc, doc, getDoc, updateDoc } 
 import Navbar from "../components/Navbar";
 import { motion } from "framer-motion";
 import { updateProfile, updateEmail } from "firebase/auth";
+import { useNavigate, useLocation } from "react-router-dom";
 
 const extractDigits = (value: string) => value.replace(/\D/g, "");
 
@@ -59,6 +60,7 @@ interface Appointment {
 
 const ProfileUser: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [activeTab, setActiveTab] = useState<"upcoming" | "archive">("upcoming");
   const [displayName, setDisplayName] = useState<string>("");
@@ -67,7 +69,8 @@ const ProfileUser: React.FC = () => {
   const [phoneDigits, setPhoneDigits] = useState<string>("");
   const [phoneError, setPhoneError] = useState<string>("");
   const [saving, setSaving] = useState(false);
-  const [mustFillPhone, setMustFillPhone] = useState(false);
+  const [mustFillPhone, setMustFillPhone] = useState(true); // По умолчанию true, пока не проверим
+  const [isLoadingPhone, setIsLoadingPhone] = useState(true);
 
   const handlePhoneChange = (value: string) => {
     const normalized = normalizePhoneDigits(value);
@@ -89,15 +92,59 @@ const ProfileUser: React.FC = () => {
     setEmail(user.email || "");
     // load phone from Firestore
     (async () => {
-      const uref = doc(db, "users", user.uid);
-      const u = await getDoc(uref);
-      const p = (u.exists() && (u.data() as any).phone) || "";
-      const normalized = normalizePhoneDigits(p);
-      setPhoneDigits(normalized);
-      setPhone(formatPhoneMasked(normalized));
-      setMustFillPhone(!normalized);
+      setIsLoadingPhone(true);
+      try {
+        const uref = doc(db, "users", user.uid);
+        const u = await getDoc(uref);
+        
+        // Если документа нет или телефон пустой/undefined/null, требуем ввод телефона
+        let phoneValue = "";
+        if (u.exists()) {
+          const userData = u.data();
+          phoneValue = userData?.phone || "";
+        }
+        
+        const normalized = normalizePhoneDigits(phoneValue);
+        setPhoneDigits(normalized);
+        setPhone(formatPhoneMasked(normalized));
+        
+        // Требуем ввод телефона, если он пустой или невалидный (меньше 11 цифр)
+        const needsPhone = !normalized || normalized.length !== 11 || !normalized.startsWith("89");
+        setMustFillPhone(needsPhone);
+      } catch (error) {
+        console.error("Ошибка загрузки телефона:", error);
+        // В случае ошибки требуем ввод телефона
+        setMustFillPhone(true);
+      } finally {
+        setIsLoadingPhone(false);
+      }
     })();
   }, [user]);
+
+  const location = useLocation();
+
+  // Блокируем навигацию, если телефон не введен
+  useEffect(() => {
+    if (mustFillPhone && !isLoadingPhone) {
+      // Блокируем переход на другие страницы через beforeunload
+      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+        e.preventDefault();
+        e.returnValue = "";
+      };
+      window.addEventListener("beforeunload", handleBeforeUnload);
+      
+      return () => {
+        window.removeEventListener("beforeunload", handleBeforeUnload);
+      };
+    }
+  }, [mustFillPhone, isLoadingPhone]);
+
+  // Перенаправляем обратно на /profile, если пользователь пытается уйти
+  useEffect(() => {
+    if (mustFillPhone && !isLoadingPhone && location.pathname !== "/profile") {
+      navigate("/profile", { replace: true });
+    }
+  }, [mustFillPhone, isLoadingPhone, location.pathname, navigate]);
 
   const handleCancel = async (id: string) => {
     if (!window.confirm("Вы уверены, что хотите отменить запись?")) return;
@@ -142,6 +189,7 @@ const ProfileUser: React.FC = () => {
     try {
       await updateDoc(doc(db, "users", user.uid), { phone: phoneDigits });
       setMustFillPhone(false);
+      // После сохранения телефона разрешаем навигацию
     } catch (e: any) {
       alert(e.message || "Ошибка сохранения телефона");
     } finally {
@@ -159,6 +207,61 @@ const ProfileUser: React.FC = () => {
   const now = new Date();
   const upcoming = appointments.filter(a => toDate(a) >= now).sort((a, b) => toDate(a).getTime() - toDate(b).getTime());
   const archive = appointments.filter(a => toDate(a) < now).sort((a, b) => toDate(b).getTime() - toDate(a).getTime());
+
+  // Показываем только модальное окно, если телефон не введен
+  // Показываем сразу, даже если данные еще загружаются (mustFillPhone по умолчанию true)
+  if (mustFillPhone) {
+    return (
+      <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+        <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md grid gap-4">
+          <div className="text-center">
+            <h3 className="text-xl font-bold mb-2">Укажите номер телефона</h3>
+            <p className="text-sm text-gray-600">
+              Для продолжения работы с сервисом необходимо указать ваш контактный номер телефона.
+            </p>
+          </div>
+          {isLoadingPhone ? (
+            <div className="text-center py-4">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+              <p className="text-sm text-gray-500 mt-2">Загрузка...</p>
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium text-gray-700">Телефон <span className="text-red-500">*</span></label>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  autoFocus
+                  className={`border p-3 rounded-lg text-lg ${phoneError ? "border-red-400 focus:border-red-500 focus:ring-red-200" : "border-gray-300 focus:border-purple-500 focus:ring-purple-200"} focus:outline-none focus:ring-2`}
+                  placeholder="8 (9XX) XXX-XX-XX"
+                  value={phone}
+                  onChange={e => handlePhoneChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleQuickPhoneSave();
+                    }
+                  }}
+                />
+                {phoneError && <span className="text-xs text-red-500">{phoneError}</span>}
+                <p className="text-xs text-gray-500">
+                  Номер телефона необходим для связи с вами и подтверждения записи
+                </p>
+              </div>
+              <button
+                onClick={handleQuickPhoneSave}
+                disabled={saving}
+                className="bg-purple-600 text-white px-4 py-3 rounded-xl hover:bg-purple-700 transition font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {saving ? "Сохранение..." : "Сохранить телефон"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -251,34 +354,6 @@ const ProfileUser: React.FC = () => {
         </div>
       </div>
 
-      {mustFillPhone && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm grid gap-4">
-            <h3 className="text-lg font-bold text-center">Укажите номер телефона</h3>
-            <p className="text-sm text-gray-600 text-center">
-              Чтобы продолжить пользоваться сервисом, нам нужен ваш контактный номер.
-            </p>
-            <div className="grid gap-1">
-              <input
-                type="tel"
-                inputMode="tel"
-                className={`border p-2 rounded ${phoneError ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
-                placeholder="Телефон"
-                value={phone}
-                onChange={e => handlePhoneChange(e.target.value)}
-              />
-              {phoneError && <span className="text-xs text-red-500">{phoneError}</span>}
-            </div>
-            <button
-              onClick={handleQuickPhoneSave}
-              disabled={saving}
-              className="bg-primary text-white px-4 py-2 rounded-xl hover:bg-purple-700 transition"
-            >
-              {saving ? "Сохранение..." : "Сохранить телефон"}
-            </button>
-          </div>
-        </div>
-      )}
     </>
   );
 };
